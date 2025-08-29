@@ -177,6 +177,7 @@ const ProjectsDashboard: React.FC = () => {
                 {project.showFiles && (
                   <div className="project-files">
                     {project.files && project.files.length > 0 ? (
+                        <>
                       <div className="files-list">
                         {project.files.map((file) => (
                           <div 
@@ -189,6 +190,14 @@ const ProjectsDashboard: React.FC = () => {
                           </div>
                         ))}
                       </div>
+                      <button 
+                            onClick={() => navigate(`/project/${project.id}/new-file`)}
+                            className="create-file-btn"
+                        >
+                            + Add File
+                        </button>
+                        </>
+                                
                     ) : (
                       <div className="no-files">
                         <p>No files in this project</p>
