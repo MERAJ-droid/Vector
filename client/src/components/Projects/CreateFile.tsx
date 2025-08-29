@@ -56,7 +56,7 @@ const CreateFile: React.FC = () => {
       setError('');
 
       const response = await projectsAPI.createFile(parseInt(projectId), {
-        filename: filename.trim(),
+        filename: filename.trim() + getFileExtension(language),
         content,
         language,
       });
