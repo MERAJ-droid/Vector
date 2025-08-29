@@ -1,0 +1,222 @@
+/* Code Editor Styles */
+
+.code-editor {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #1e1e1e;
+}
+
+.editor-header {
+  background: #2d2d30;
+  color: white;
+  padding: 0.75rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #3c3c3c;
+  min-height: 60px;
+}
+
+.editor-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.back-btn {
+  background: transparent;
+  border: 1px solid #555;
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+}
+
+.back-btn:hover {
+  background: #555;
+  border-color: #777;
+}
+
+.file-info h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #fff;
+}
+
+.project-name {
+  font-size: 0.9rem;
+  color: #ccc;
+  margin-left: 0.5rem;
+}
+
+.editor-status {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.saving-indicator {
+  color: #ffd700;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.saving-indicator::before {
+  content: '⟳';
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.last-saved {
+  color: #90ee90;
+}
+
+.error-indicator {
+  color: #ff6b6b;
+}
+
+.editor-container {
+  flex: 1;
+  position: relative;
+}
+
+/* Loading and Error States */
+.editor-loading,
+.editor-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #1e1e1e;
+  color: white;
+  text-align: center;
+}
+
+.editor-loading .loading-spinner {
+  font-size: 1.2rem;
+  color: #667eea;
+  margin-bottom: 1rem;
+}
+
+.editor-error h3 {
+  margin: 0 0 1rem 0;
+  color: #ff6b6b;
+  font-size: 1.5rem;
+}
+
+.editor-error p {
+  margin: 0 0 2rem 0;
+  color: #ccc;
+  font-size: 1.1rem;
+}
+
+.editor-error button {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.editor-error button:hover {
+  background: #5a6fd8;
+  transform: translateY(-2px);
+}
+
+/* Monaco Editor Customizations */
+.monaco-editor {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace !important;
+}
+
+.monaco-editor .cursor {
+  background: #667eea !important;
+}
+
+.monaco-editor .selected-text {
+  background-color: rgba(102, 126, 234, 0.3) !important;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .editor-header {
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem;
+    min-height: auto;
+  }
+
+  .editor-nav {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .file-info {
+    text-align: center;
+  }
+
+  .file-info h2 {
+    font-size: 1rem;
+  }
+
+  .project-name {
+    display: block;
+    margin-left: 0;
+    margin-top: 0.25rem;
+  }
+
+  .editor-status {
+    justify-content: center;
+    font-size: 0.8rem;
+  }
+
+  .editor-container {
+    height: calc(100vh - 120px);
+  }
+}
+
+/* Monaco Editor Theme Customizations */
+.monaco-editor.vs-dark {
+  background: #1e1e1e !important;
+}
+
+.monaco-editor.vs-dark .margin {
+  background: #1e1e1e !important;
+}
+
+.monaco-editor.vs-dark .monaco-editor-background {
+  background: #1e1e1e !important;
+}
+
+/* Collaborative cursor styles (for future Phase 2) */
+.collaborative-cursor {
+  position: absolute;
+  width: 2px;
+  background: #667eea;
+  z-index: 1000;
+}
+
+.collaborative-cursor::after {
+  content: attr(data-user);
+  position: absolute;
+  top: -20px;
+  left: 0;
+  background: #667eea;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+}
