@@ -1,4 +1,4 @@
-# Vector - Real-Time Collaborative Code Editor
+<!-- # Vector - Real-Time Collaborative Code Editor
 
 A modern, real-time collaborative code editor built with Node.js, React, and PostgreSQL.
 
@@ -161,4 +161,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Built with inspiration from VS Code and collaborative editors
 - Monaco Editor for the excellent code editing experience
-- Yjs for future CRDT implementation
+- Yjs for future CRDT implementation -->
