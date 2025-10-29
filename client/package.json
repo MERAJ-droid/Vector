@@ -13,13 +13,17 @@
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "axios": "^1.11.0",
+    "lib0": "^0.2.114",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.8.2",
     "react-scripts": "5.0.1",
     "socket.io-client": "^4.8.1",
     "typescript": "^4.9.5",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "y-protocols": "^1.0.6",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.27"
   },
   "scripts": {
     "start": "react-scripts start",

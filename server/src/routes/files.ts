@@ -28,7 +28,13 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
 
     const file = result.rows[0];
 
-    res.json({
+    // Get the latest snapshot if available
+    const snapshotResult = await pool.query(
+      'SELECT snapshot_data FROM yjs_snapshots WHERE file_id = $1 ORDER BY sequence_number DESC LIMIT 1',
+      [fileId]
+    );
+
+    const response: any = {
       file: {
         id: file.id,
         filename: file.filename,
@@ -39,19 +45,27 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
         updatedAt: file.updated_at,
         projectName: file.project_name
       }
-    });
+    };
+
+    // Include snapshot data if available
+    if (snapshotResult.rows.length > 0) {
+      response.file.snapshot = Array.from(snapshotResult.rows[0].snapshot_data);
+      console.log(`📥 Loaded snapshot for file ${fileId}`);
+    }
+
+    res.json(response);
   } catch (error) {
     console.error('Get file error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Update file content (Phase 1 - simple text sync)
+// Update file content (Phase 2 - supports both regular updates and Yjs snapshots)
 router.put('/:id', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
     const fileId = parseInt(req.params.id);
-    const { content, language } = req.body;
+    const { content, language, snapshot } = req.body;
 
     if (isNaN(fileId)) {
       return res.status(400).json({ error: 'Invalid file ID' });
@@ -59,7 +73,7 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res) => {
 
     // Verify file ownership and get current state
     const fileCheck = await pool.query(`
-      SELECT f.id, f.is_collaborative
+      SELECT f.id, f.is_collaborative, f.project_id
       FROM files f
       JOIN projects p ON f.project_id = p.id
       WHERE f.id = $1 AND p.owner_id = $2
@@ -71,12 +85,27 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res) => {
 
     const file = fileCheck.rows[0];
 
-    // For Phase 1, only update non-collaborative files via this endpoint
-    if (file.is_collaborative) {
-      return res.status(400).json({ error: 'Collaborative files should be updated via real-time sync' });
+    // If snapshot data is provided, save it to yjs_snapshots table
+    if (snapshot && Array.isArray(snapshot)) {
+      const snapshotBuffer = Buffer.from(snapshot);
+      
+      // Get the next sequence number
+      const sequenceResult = await pool.query(
+        'SELECT COALESCE(MAX(sequence_number), 0) + 1 as next_sequence FROM yjs_snapshots WHERE file_id = $1',
+        [fileId]
+      );
+      const nextSequence = sequenceResult.rows[0].next_sequence;
+
+      // Save the snapshot
+      await pool.query(
+        'INSERT INTO yjs_snapshots (file_id, snapshot_data, sequence_number) VALUES ($1, $2, $3)',
+        [fileId, snapshotBuffer, nextSequence]
+      );
+
+      console.log(`💾 Saved Yjs snapshot for file ${fileId}, sequence ${nextSequence}`);
     }
 
-    // Update file content
+    // Update file content in the files table
     const updateFields = [];
     const updateValues = [];
     let paramCount = 1;

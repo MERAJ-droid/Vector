@@ -21,6 +21,7 @@ export interface File {
   createdAt: string;
   updatedAt: string;
   projectName?: string;
+  snapshot?: number[];
 }
 
 export interface AuthResponse {
@@ -71,4 +72,5 @@ export interface CreateFileRequest {
 export interface UpdateFileRequest {
   content?: string;
   language?: string;
+  snapshot?: number[];
 }

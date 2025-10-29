@@ -3,60 +3,58 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Editor } from '@monaco-editor/react';
 import { useAuth } from '../../context/AuthContext';
 import { filesAPI } from '../../services/api';
-import socketService from '../../services/socket';
-import { File, SocketTextChangeEvent } from '../../types';
+import { File } from '../../types';
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
+import { MonacoBinding } from '../../utils/MonacoBinding';
+import type { editor as MonacoEditor } from 'monaco-editor';
 import './Editor.css';
+
+const YJS_SERVER_URL = process.env.REACT_APP_YJS_URL || 'ws://localhost:1234';
 
 const CodeEditor: React.FC = () => {
   const { fileId } = useParams<{ fileId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
-  const [content, setContent] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const editorRef = useRef<any>(null);
+  const [connectedUsers, setConnectedUsers] = useState<number>(0);
+  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const ydocRef = useRef<Y.Doc | null>(null);
+  const providerRef = useRef<WebsocketProvider | null>(null);
+  const bindingRef = useRef<MonacoBinding | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (fileId) {
       loadFile(parseInt(fileId));
     }
+
+    return () => {
+      // Cleanup on unmount
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+      }
+      if (providerRef.current) {
+        providerRef.current.destroy();
+      }
+      if (ydocRef.current) {
+        ydocRef.current.destroy();
+      }
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
   }, [fileId]);
-
-  useEffect(() => {
-    // Socket connection for real-time collaboration
-    if (fileId && user) {
-      socketService.connect();
-      socketService.joinFile(fileId);
-
-      const handleTextChange = (data: SocketTextChangeEvent) => {
-        if (data.userId !== user.id.toString() && data.fileId === fileId) {
-          // Update editor content from other users
-          setContent(data.content);
-          if (editorRef.current) {
-            editorRef.current.setValue(data.content);
-          }
-        }
-      };
-
-      socketService.on('text-change', handleTextChange);
-
-      return () => {
-        socketService.off('text-change', handleTextChange);
-        socketService.leaveFile(fileId);
-      };
-    }
-  }, [fileId, user]);
 
   const loadFile = async (id: number) => {
     try {
       setIsLoading(true);
       const response = await filesAPI.getFile(id);
       setFile(response.file);
-      setContent(response.file.content);
       setError('');
     } catch (error: any) {
       setError('Failed to load file');
@@ -66,47 +64,90 @@ const CodeEditor: React.FC = () => {
     }
   };
 
-  const saveFile = async (newContent: string) => {
-    if (!file || !fileId) return;
+  const saveSnapshot = async () => {
+    if (!file || !ydocRef.current) return;
 
     try {
       setIsSaving(true);
-      await filesAPI.updateFile(file.id, { content: newContent });
+      // TEMP: Snapshot saving disabled for testing
+      // Just save regular content for now
+      await filesAPI.updateFile(file.id, { 
+        content: ydocRef.current.getText('monaco').toString()
+      });
+      
       setLastSaved(new Date());
       setError('');
     } catch (error: any) {
       setError('Failed to save file');
-      console.error('Save file error:', error);
+      console.error('Save error:', error);
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleEditorChange = (value: string | undefined) => {
-    if (value === undefined) return;
+  const setupYjs = (editor: MonacoEditor.IStandaloneCodeEditor, file: File) => {
+    if (!fileId) return;
 
-    setContent(value);
+    // Create Yjs document
+    const ydoc = new Y.Doc();
+    ydocRef.current = ydoc;
+    const ytext = ydoc.getText('monaco');
 
-    // Broadcast changes to other users via socket
-    if (fileId && user) {
-      socketService.sendTextChange({
-        fileId,
-        content: value,
-        userId: user.id.toString(),
+    // TEMP: Skip snapshot loading for now, always use file content
+    // This avoids compatibility issues with old snapshots
+    console.log('📄 Initializing with file content (snapshots temporarily disabled)');
+    ytext.insert(0, file.content);
+
+    // Connect to Yjs WebSocket server
+    const provider = new WebsocketProvider(
+      YJS_SERVER_URL,
+      `file-${fileId}`,
+      ydoc
+    );
+    providerRef.current = provider;
+
+    // Monitor connection status
+    provider.on('status', ({ status }: { status: string }) => {
+      console.log('🔌 Yjs connection status:', status);
+      if (status === 'connected') {
+        console.log('✅ Connected to Yjs server');
+      }
+    });
+
+    // Track connected users via awareness
+    provider.awareness.on('change', () => {
+      const states = provider.awareness.getStates();
+      setConnectedUsers(states.size);
+    });
+
+    // Set local awareness state
+    if (user) {
+      provider.awareness.setLocalStateField('user', {
+        name: user.username,
+        id: user.id,
+        color: getRandomColor(),
       });
     }
 
-    // Auto-save with debouncing
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
+    // Bind Yjs to Monaco Editor
+    const model = editor.getModel();
+    if (model) {
+      const binding = new MonacoBinding(ytext, model, provider.awareness);
+      bindingRef.current = binding;
     }
 
-    saveTimeoutRef.current = setTimeout(() => {
-      saveFile(value);
-    }, 1000); // Save after 1 second of inactivity
+    // Auto-save snapshots periodically
+    ydoc.on('update', () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      saveTimeoutRef.current = setTimeout(() => {
+        saveSnapshot();
+      }, 2000); // Save after 2 seconds of inactivity
+    });
   };
 
-  const handleEditorDidMount = (editor: any) => {
+  const handleEditorDidMount = (editor: MonacoEditor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
     
     // Configure editor
@@ -118,6 +159,11 @@ const CodeEditor: React.FC = () => {
       scrollBeyondLastLine: false,
       automaticLayout: true,
     });
+
+    // Setup Yjs collaboration after editor is mounted
+    if (file) {
+      setupYjs(editor, file);
+    }
   };
 
   const getLanguageFromFilename = (filename: string): string => {
@@ -148,6 +194,14 @@ const CodeEditor: React.FC = () => {
       'yaml': 'yaml',
     };
     return languageMap[extension || ''] || 'plaintext';
+  };
+
+  const getRandomColor = (): string => {
+    const colors = [
+      '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', 
+      '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'
+    ];
+    return colors[Math.floor(Math.random() * colors.length)];
   };
 
   if (isLoading) {
@@ -187,6 +241,11 @@ const CodeEditor: React.FC = () => {
         </div>
         
         <div className="editor-status">
+          {connectedUsers > 1 && (
+            <span className="collaborators">
+              👥 {connectedUsers} {connectedUsers === 1 ? 'user' : 'users'} connected
+            </span>
+          )}
           {isSaving && <span className="saving-indicator">Saving...</span>}
           {lastSaved && (
             <span className="last-saved">
@@ -201,8 +260,7 @@ const CodeEditor: React.FC = () => {
         <Editor
           height="calc(100vh - 80px)"
           language={file ? getLanguageFromFilename(file.filename) : 'plaintext'}
-          value={content}
-          onChange={handleEditorChange}
+          defaultValue={file?.content || ''}
           onMount={handleEditorDidMount}
           theme="vs-dark"
           options={{

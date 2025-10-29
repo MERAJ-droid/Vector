@@ -59,6 +59,11 @@
   font-size: 0.9rem;
 }
 
+.collaborators {
+  color: #4ECDC4;
+  font-weight: 500;
+}
+
 .saving-indicator {
   color: #ffd700;
   display: flex;
