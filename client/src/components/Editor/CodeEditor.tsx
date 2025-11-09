@@ -93,41 +93,84 @@ const CodeEditor: React.FC = () => {
     ydocRef.current = ydoc;
     const ytext = ydoc.getText('monaco');
 
-    // TEMP: Skip snapshot loading for now, always use file content
-    // This avoids compatibility issues with old snapshots
-    console.log('📄 Initializing with file content (snapshots temporarily disabled)');
-    ytext.insert(0, file.content);
-
-    // Connect to Yjs WebSocket server
+    // Connect to Yjs WebSocket server FIRST
+    const roomName = `file-${fileId}`;
+    console.log(`🌐 Attempting to connect to Yjs room: "${roomName}"`);
+    console.log(`📍 File ID: ${fileId}, File: ${file.filename}`);
+    console.log(`🔗 Yjs Server URL: ${YJS_SERVER_URL}`);
+    
     const provider = new WebsocketProvider(
       YJS_SERVER_URL,
-      `file-${fileId}`,
+      roomName,
       ydoc
     );
     providerRef.current = provider;
+    
+    // Log provider details
+    console.log(`📦 Provider created - Room: "${provider.roomname}", Doc ID: ${ydoc.guid}`);
+
+    // Only initialize content if document is empty after syncing
+    provider.on('sync', (isSynced: boolean) => {
+      if (isSynced && ytext.length === 0) {
+        console.log('📄 First client - initializing with file content');
+        ytext.insert(0, file.content || '');
+      } else if (isSynced) {
+        console.log('✅ Synced with existing Yjs document');
+      }
+    });
 
     // Monitor connection status
     provider.on('status', ({ status }: { status: string }) => {
       console.log('🔌 Yjs connection status:', status);
       if (status === 'connected') {
-        console.log('✅ Connected to Yjs server');
+        console.log('✅ Connected to Yjs server on ws://localhost:1234');
+        
+        // Set awareness AFTER connection is established
+        if (user) {
+          const userColor = getRandomColor();
+          provider.awareness.setLocalState({
+            user: {
+              name: user.username,
+              id: user.id,
+              color: userColor,
+            }
+          });
+          console.log(`🎨 Local user set after connection: ${user.username} (${userColor})`);
+        }
+      } else if (status === 'disconnected') {
+        console.error('❌ Disconnected from Yjs server');
       }
     });
 
     // Track connected users via awareness
-    provider.awareness.on('change', () => {
+    provider.awareness.on('change', (changes: any) => {
       const states = provider.awareness.getStates();
-      setConnectedUsers(states.size);
-    });
-
-    // Set local awareness state
-    if (user) {
-      provider.awareness.setLocalStateField('user', {
-        name: user.username,
-        id: user.id,
-        color: getRandomColor(),
+      
+      // Filter out anonymous/stale clients
+      let realUserCount = 0;
+      const clients: any[] = [];
+      states.forEach((state, clientId) => {
+        if (state.user && state.user.name) {
+          realUserCount++;
+          const isLocal = clientId === provider.awareness.clientID;
+          clients.push({ clientId, state, isLocal });
+        }
       });
-    }
+      
+      console.log('👥 Awareness change detected - Active users:', realUserCount);
+      setConnectedUsers(realUserCount);
+      
+      // Log all connected users for debugging
+      console.log('📋 Active clients:');
+      clients.forEach(({ clientId, state, isLocal }) => {
+        console.log(`  ${isLocal ? '→' : ' '} Client ${clientId}:`, state.user, isLocal ? '(YOU)' : '');
+      });
+      
+      // Log what changed
+      if (changes.added && changes.added.length > 0) console.log('  ➕ Added clients:', changes.added);
+      if (changes.updated && changes.updated.length > 0) console.log('  ♻️  Updated clients:', changes.updated);
+      if (changes.removed && changes.removed.length > 0) console.log('  ➖ Removed clients:', changes.removed);
+    });
 
     // Bind Yjs to Monaco Editor
     const model = editor.getModel();

@@ -104,9 +104,15 @@ const send = (doc: WSSharedDoc, conn: WebSocket, m: Uint8Array) => {
 const setupWSConnection = (conn: WebSocket, req: http.IncomingMessage) => {
   conn.binaryType = 'arraybuffer';
   const docName = req.url?.slice(1) || 'default';
+  console.log(`\n🔗 New connection request`);
+  console.log(`   URL: ${req.url}`);
+  console.log(`   Parsed room name: "${docName}"`);
+  console.log(`   Client IP: ${req.socket.remoteAddress}`);
+  
   const doc = getYDoc(docName);
 
   doc.conns.set(conn, new Set());
+  console.log(`👥 Room "${docName}" now has ${doc.conns.size} connection(s)`);
 
   // Send sync step 1
   const encoder = encoding.createEncoder();
@@ -153,7 +159,9 @@ const setupWSConnection = (conn: WebSocket, req: http.IncomingMessage) => {
   });
 
   conn.on('close', () => {
+    console.log(`🔌 Connection closed for room: ${doc.name}`);
     closeConn(doc, conn);
+    console.log(`👥 Room "${doc.name}" now has ${doc.conns.size} connection(s)`);
   });
 };
 
