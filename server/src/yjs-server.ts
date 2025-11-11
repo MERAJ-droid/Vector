@@ -63,8 +63,12 @@ const messageListener = (conn: WebSocket, doc: WSSharedDoc, message: Uint8Array)
         );
         break;
     }
-  } catch (err) {
-    console.error('Error handling message:', err);
+  } catch (err: any) {
+    // Silently ignore corrupted messages - don't crash the server
+    if (err.message && !err.message.includes('Unexpected end of array') && 
+        !err.message.includes('contentRefs')) {
+      console.error('Error handling message:', err.message);
+    }
   }
 };
 
@@ -77,11 +81,11 @@ const closeConn = (doc: WSSharedDoc, conn: WebSocket) => {
       Array.from(controlledIds || []),
       null
     );
-    if (doc.conns.size === 0) {
-      // Clean up document if no connections
-      docs.delete(doc.name);
-      console.log(`🗑️  Removed Yjs document: ${doc.name}`);
-    }
+    console.log(`🔌 Connection closed for room: ${doc.name}`);
+    console.log(`👥 Room "${doc.name}" now has ${doc.conns.size} connection(s)`);
+    
+    // DON'T delete the document - keep it in memory for future connections
+    // This ensures document persistence across browser sessions
   }
   conn.close();
 };

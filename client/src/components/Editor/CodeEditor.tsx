@@ -5,7 +5,9 @@ import { useAuth } from '../../context/AuthContext';
 import { filesAPI } from '../../services/api';
 import { File } from '../../types';
 import * as Y from 'yjs';
-import { WebsocketProvider } from 'y-websocket';
+import * as syncProtocol from 'y-protocols/sync';
+import * as encoding from 'lib0/encoding';
+import * as decoding from 'lib0/decoding';
 import { MonacoBinding } from '../../utils/MonacoBinding';
 import type { editor as MonacoEditor } from 'monaco-editor';
 import './Editor.css';
@@ -24,7 +26,7 @@ const CodeEditor: React.FC = () => {
   const [connectedUsers, setConnectedUsers] = useState<number>(0);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const ydocRef = useRef<Y.Doc | null>(null);
-  const providerRef = useRef<WebsocketProvider | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -38,8 +40,8 @@ const CodeEditor: React.FC = () => {
       if (bindingRef.current) {
         bindingRef.current.destroy();
       }
-      if (providerRef.current) {
-        providerRef.current.destroy();
+      if (wsRef.current) {
+        wsRef.current.close();
       }
       if (ydocRef.current) {
         ydocRef.current.destroy();
@@ -88,106 +90,118 @@ const CodeEditor: React.FC = () => {
   const setupYjs = (editor: MonacoEditor.IStandaloneCodeEditor, file: File) => {
     if (!fileId) return;
 
+    console.log('🔧 Setting up Yjs with custom sync protocol');
+
     // Create Yjs document
     const ydoc = new Y.Doc();
     ydocRef.current = ydoc;
     const ytext = ydoc.getText('monaco');
 
-    // Connect to Yjs WebSocket server FIRST
+    // Connect to WebSocket server
     const roomName = `file-${fileId}`;
-    console.log(`🌐 Attempting to connect to Yjs room: "${roomName}"`);
-    console.log(`📍 File ID: ${fileId}, File: ${file.filename}`);
-    console.log(`🔗 Yjs Server URL: ${YJS_SERVER_URL}`);
+    const ws = new WebSocket(`ws://localhost:1234/${roomName}`);
+    wsRef.current = ws;
     
-    const provider = new WebsocketProvider(
-      YJS_SERVER_URL,
-      roomName,
-      ydoc
-    );
-    providerRef.current = provider;
-    
-    // Log provider details
-    console.log(`📦 Provider created - Room: "${provider.roomname}", Doc ID: ${ydoc.guid}`);
+    console.log(`🌐 Connecting to room: "${roomName}"`);
+    console.log(`� Doc ID: ${ydoc.guid}`);
 
-    // Only initialize content if document is empty after syncing
-    provider.on('sync', (isSynced: boolean) => {
-      if (isSynced && ytext.length === 0) {
-        console.log('📄 First client - initializing with file content');
-        ytext.insert(0, file.content || '');
-      } else if (isSynced) {
-        console.log('✅ Synced with existing Yjs document');
+    let isSynced = false;
+
+    ws.onopen = () => {
+      console.log('✅ WebSocket connected');
+    };
+
+    ws.onmessage = (event: MessageEvent) => {
+      const data = event.data;
+      
+      // Convert blob to array buffer if needed
+      if (data instanceof Blob) {
+        data.arrayBuffer().then((buffer: ArrayBuffer) => {
+          handleYjsMessage(new Uint8Array(buffer));
+        });
+      } else if (data instanceof ArrayBuffer) {
+        handleYjsMessage(new Uint8Array(data));
       }
-    });
+    };
 
-    // Monitor connection status
-    provider.on('status', ({ status }: { status: string }) => {
-      console.log('🔌 Yjs connection status:', status);
-      if (status === 'connected') {
-        console.log('✅ Connected to Yjs server on ws://localhost:1234');
-        
-        // Set awareness AFTER connection is established
-        if (user) {
-          const userColor = getRandomColor();
-          provider.awareness.setLocalState({
-            user: {
-              name: user.username,
-              id: user.id,
-              color: userColor,
+    const handleYjsMessage = (message: Uint8Array) => {
+      const decoder = decoding.createDecoder(message);
+      const encoder = encoding.createEncoder();
+      const messageType = decoding.readVarUint(decoder);
+
+      console.log(`� Received message type: ${messageType}`);
+
+      switch (messageType) {
+        case syncProtocol.messageYjsSyncStep1:
+          // Server sent sync step 1, respond with sync step 2
+          encoding.writeVarUint(encoder, syncProtocol.messageYjsSyncStep2);
+          syncProtocol.readSyncStep1(decoder, encoder, ydoc);
+          ws.send(encoding.toUint8Array(encoder));
+          console.log('📤 Sent SyncStep2 response');
+          break;
+
+        case syncProtocol.messageYjsSyncStep2:
+          // Server sent sync step 2, apply it
+          syncProtocol.readSyncStep2(decoder, ydoc, null);
+          console.log('✅ Applied SyncStep2 from server');
+          
+          if (!isSynced) {
+            isSynced = true;
+            console.log('🎉 Initial sync complete!');
+            
+            // If document is empty, insert file content
+            if (ytext.length === 0 && file.content) {
+              ytext.insert(0, file.content);
+              console.log('📄 Inserted initial file content');
+            } else {
+              console.log(`✅ Document already has content: ${ytext.length} chars`);
             }
-          });
-          console.log(`🎨 Local user set after connection: ${user.username} (${userColor})`);
-        }
-      } else if (status === 'disconnected') {
-        console.error('❌ Disconnected from Yjs server');
+          }
+          break;
+
+        case syncProtocol.messageYjsUpdate:
+          // Server sent an update from another client
+          syncProtocol.readUpdate(decoder, ydoc, 'server');
+          console.log('📝 Applied update from another client');
+          break;
       }
-    });
+    };
 
-    // Track connected users via awareness
-    provider.awareness.on('change', (changes: any) => {
-      const states = provider.awareness.getStates();
+    // Send updates when document changes
+    ydoc.on('update', (update: Uint8Array, origin: any) => {
+      if (origin !== 'server' && ws.readyState === WebSocket.OPEN) {
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, syncProtocol.messageYjsUpdate);
+        encoding.writeVarUint8Array(encoder, update);
+        ws.send(encoding.toUint8Array(encoder));
+        console.log(`� Sent update (${update.length} bytes)`);
+      }
       
-      // Filter out anonymous/stale clients
-      let realUserCount = 0;
-      const clients: any[] = [];
-      states.forEach((state, clientId) => {
-        if (state.user && state.user.name) {
-          realUserCount++;
-          const isLocal = clientId === provider.awareness.clientID;
-          clients.push({ clientId, state, isLocal });
-        }
-      });
-      
-      console.log('👥 Awareness change detected - Active users:', realUserCount);
-      setConnectedUsers(realUserCount);
-      
-      // Log all connected users for debugging
-      console.log('📋 Active clients:');
-      clients.forEach(({ clientId, state, isLocal }) => {
-        console.log(`  ${isLocal ? '→' : ' '} Client ${clientId}:`, state.user, isLocal ? '(YOU)' : '');
-      });
-      
-      // Log what changed
-      if (changes.added && changes.added.length > 0) console.log('  ➕ Added clients:', changes.added);
-      if (changes.updated && changes.updated.length > 0) console.log('  ♻️  Updated clients:', changes.updated);
-      if (changes.removed && changes.removed.length > 0) console.log('  ➖ Removed clients:', changes.removed);
-    });
-
-    // Bind Yjs to Monaco Editor
-    const model = editor.getModel();
-    if (model) {
-      const binding = new MonacoBinding(ytext, model, provider.awareness);
-      bindingRef.current = binding;
-    }
-
-    // Auto-save snapshots periodically
-    ydoc.on('update', () => {
+      // Auto-save snapshots periodically
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
       saveTimeoutRef.current = setTimeout(() => {
         saveSnapshot();
-      }, 2000); // Save after 2 seconds of inactivity
+      }, 2000);
     });
+
+    ws.onerror = (error) => {
+      console.error('❌ WebSocket error:', error);
+    };
+
+    ws.onclose = () => {
+      console.log('👋 WebSocket disconnected');
+    };
+
+    // Create Monaco binding
+    const model = editor.getModel();
+    if (model) {
+      const binding = new MonacoBinding(ytext, model);
+      bindingRef.current = binding;
+    }
+
+    console.log('✅ Yjs setup complete');
   };
 
   const handleEditorDidMount = (editor: MonacoEditor.IStandaloneCodeEditor) => {
