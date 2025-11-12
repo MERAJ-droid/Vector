@@ -60,46 +60,51 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
   console.log(`📤 Sent SyncStep1 to new client`);
 
   ws.on('message', (message: Buffer) => {
-    const uint8Message = new Uint8Array(message);
-    const decoder = decoding.createDecoder(uint8Message);
-    const encoder = encoding.createEncoder();
-    const messageType = decoding.readVarUint(decoder);
+    try {
+      const uint8Message = new Uint8Array(message);
+      const decoder = decoding.createDecoder(uint8Message);
+      const encoder = encoding.createEncoder();
+      const messageType = decoding.readVarUint(decoder);
 
-    switch (messageType) {
-      case syncProtocol.messageYjsSyncStep1:
-        // Client sent sync step 1, respond with step 2
-        encoding.writeVarUint(encoder, syncProtocol.messageYjsSyncStep2);
-        syncProtocol.readSyncStep1(decoder, encoder, room.doc);
-        const syncStep2 = encoding.toUint8Array(encoder);
-        ws.send(syncStep2);
-        console.log(`📤 Sent SyncStep2 response`);
-        break;
+      switch (messageType) {
+        case syncProtocol.messageYjsSyncStep1:
+          // Client sent sync step 1, respond with step 2
+          encoding.writeVarUint(encoder, syncProtocol.messageYjsSyncStep2);
+          syncProtocol.readSyncStep1(decoder, encoder, room.doc);
+          const syncStep2 = encoding.toUint8Array(encoder);
+          ws.send(syncStep2);
+          console.log(`📤 Sent SyncStep2 response`);
+          break;
 
-      case syncProtocol.messageYjsSyncStep2:
-        // Client sent sync step 2, apply it
-        syncProtocol.readSyncStep2(decoder, room.doc, null);
-        console.log(`✅ Applied SyncStep2 from client`);
-        break;
+        case syncProtocol.messageYjsSyncStep2:
+          // Client sent sync step 2, apply it
+          syncProtocol.readSyncStep2(decoder, room.doc, null);
+          console.log(`✅ Applied SyncStep2 from client`);
+          break;
 
-      case syncProtocol.messageYjsUpdate:
-        // Client sent an update, apply and broadcast
-        syncProtocol.readUpdate(decoder, room.doc, null);
-        
-        // Broadcast update to all OTHER clients in the room
-        room.clients.forEach((client) => {
-          if (client !== ws && client.readyState === WebSocket.OPEN) {
-            client.send(uint8Message);
-          }
-        });
-        
-        console.log(`📝 Applied and broadcasted update to ${room.clients.size - 1} other client(s)`);
-        break;
+        case syncProtocol.messageYjsUpdate:
+          // Client sent an update, apply and broadcast
+          syncProtocol.readUpdate(decoder, room.doc, null);
+          
+          // Broadcast update to all OTHER clients in the room
+          room.clients.forEach((client) => {
+            if (client !== ws && client.readyState === WebSocket.OPEN) {
+              client.send(uint8Message);
+            }
+          });
+          
+          console.log(`📝 Applied and broadcasted update to ${room.clients.size - 1} other client(s)`);
+          break;
 
-      default:
-        console.warn(`⚠️ Unknown message type: ${messageType}`);
+        default:
+          console.warn(`⚠️ Unknown message type: ${messageType}`);
+      }
+    } catch (error) {
+      // Silently ignore corrupted messages from old cached clients
+      console.warn(`⚠️ Ignored corrupted message from client in room "${roomName}"`);
     }
   });
-
+ 
   ws.on('close', () => {
     room.clients.delete(ws);
     console.log(`👋 Client disconnected from room: "${roomName}"`);
