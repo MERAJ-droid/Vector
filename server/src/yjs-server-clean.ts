@@ -2,32 +2,73 @@ import WebSocket from 'ws';
 import http from 'http';
 import * as Y from 'yjs';
 import * as syncProtocol from 'y-protocols/sync';
+import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
+import * as map from 'lib0/map';
 
 const PORT = 1234;
 
-interface Room {
+const docs = new Map<string, WSSharedDoc>();
+
+const messageSync = 0;
+const messageAwareness = 1;
+
+class WSSharedDoc extends Y.Doc {
   name: string;
-  doc: Y.Doc;
-  clients: Set<WebSocket>;
-}
+  conns: Map<WebSocket, Set<number>>;
+  awareness: awarenessProtocol.Awareness;
 
-const rooms = new Map<string, Room>();
-
-function getRoom(roomName: string): Room {
-  if (!rooms.has(roomName)) {
-    const doc = new Y.Doc();
-    const room: Room = {
-      name: roomName,
-      doc,
-      clients: new Set(),
-    };
-    rooms.set(roomName, room);
-    console.log(`✅ Created new room: ${roomName}`);
+  constructor(name: string) {
+    super({ gc: true });
+    this.name = name;
+    this.conns = new Map();
+    this.awareness = new awarenessProtocol.Awareness(this);
+    
+    this.awareness.on('update', ({ added, updated, removed }: any) => {
+      const changedClients = added.concat(updated).concat(removed);
+      const awarenessUpdate = awarenessProtocol.encodeAwarenessUpdate(this.awareness, changedClients);
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, messageAwareness);
+      encoding.writeVarUint8Array(encoder, awarenessUpdate);
+      const buff = encoding.toUint8Array(encoder);
+      this.conns.forEach((_, conn) => {
+        send(this, conn, buff);
+      });
+    });
   }
-  return rooms.get(roomName)!;
 }
+
+const getYDoc = (docname: string): WSSharedDoc => map.setIfUndefined(docs, docname, () => {
+  const doc = new WSSharedDoc(docname);
+  console.log(`✅ Created new shared Y.Doc for room: "${docname}"`);
+  return doc;
+});
+
+const send = (doc: WSSharedDoc, conn: WebSocket, m: Uint8Array) => {
+  if (conn.readyState !== WebSocket.CONNECTING && conn.readyState !== WebSocket.OPEN) {
+    closeConn(doc, conn);
+  } else {
+    try {
+      conn.send(m);
+    } catch (e) {
+      closeConn(doc, conn);
+    }
+  }
+};
+
+const closeConn = (doc: WSSharedDoc, conn: WebSocket) => {
+  if (doc.conns.has(conn)) {
+    const controlledIds = doc.conns.get(conn);
+    doc.conns.delete(conn);
+    awarenessProtocol.removeAwarenessStates(doc.awareness, Array.from(controlledIds!), null);
+    if (doc.conns.size === 0) {
+      docs.delete(doc.name);
+      console.log(`🗑️ Removed empty room: "${doc.name}"`);
+    }
+  }
+  conn.close();
+};
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -47,90 +88,72 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
 
   console.log(`🔗 New client connecting to room: "${roomName}"`);
   
-  const room = getRoom(roomName);
-  room.clients.add(ws);
+  const doc = getYDoc(roomName);
+  doc.conns.set(ws, new Set());
   
-  console.log(`👥 Room "${roomName}" now has ${room.clients.size} client(s)`);
+  const ytext = doc.getText('monaco');
+  console.log(`📊 Room "${roomName}" doc state: ${ytext.length} characters`);
 
-  // Send sync step 1 to new client
-  const encoderSync = encoding.createEncoder();
-  encoding.writeVarUint(encoderSync, syncProtocol.messageYjsSyncStep1);
-  syncProtocol.writeSyncStep1(encoderSync, room.doc);
-  ws.send(encoding.toUint8Array(encoderSync));
-  console.log(`📤 Sent SyncStep1 to new client`);
+  // Send Sync Step 1
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, messageSync);
+  syncProtocol.writeSyncStep1(encoder, doc);
+  send(doc, ws, encoding.toUint8Array(encoder));
+  const awarenessStates = doc.awareness.getStates();
+  if (awarenessStates.size > 0) {
+    const awarenessEncoder = encoding.createEncoder();
+    encoding.writeVarUint(awarenessEncoder, messageAwareness);
+    encoding.writeVarUint8Array(awarenessEncoder, awarenessProtocol.encodeAwarenessUpdate(doc.awareness, Array.from(awarenessStates.keys())));
+    send(doc, ws, encoding.toUint8Array(awarenessEncoder));
+  }
 
+  // Message handler
   ws.on('message', (message: Buffer) => {
     try {
-      const uint8Message = new Uint8Array(message);
-      const decoder = decoding.createDecoder(uint8Message);
       const encoder = encoding.createEncoder();
+      const decoder = decoding.createDecoder(new Uint8Array(message));
       const messageType = decoding.readVarUint(decoder);
-
+      
       switch (messageType) {
-        case syncProtocol.messageYjsSyncStep1:
-          // Client sent sync step 1, respond with step 2
-          encoding.writeVarUint(encoder, syncProtocol.messageYjsSyncStep2);
-          syncProtocol.readSyncStep1(decoder, encoder, room.doc);
-          const syncStep2 = encoding.toUint8Array(encoder);
-          ws.send(syncStep2);
-          console.log(`📤 Sent SyncStep2 response`);
+        case messageSync:
+          encoding.writeVarUint(encoder, messageSync);
+          const syncMessageType = syncProtocol.readSyncMessage(decoder, encoder, doc, null);
+          if (syncMessageType === syncProtocol.messageYjsSyncStep2 && !doc.conns.get(ws)?.has(0)) {
+            doc.conns.get(ws)?.add(0);
+          }
+          if (encoding.length(encoder) > 1) {
+            send(doc, ws, encoding.toUint8Array(encoder));
+          }
           break;
-
-        case syncProtocol.messageYjsSyncStep2:
-          // Client sent sync step 2, apply it
-          syncProtocol.readSyncStep2(decoder, room.doc, null);
-          console.log(`✅ Applied SyncStep2 from client`);
+        case messageAwareness:
+          awarenessProtocol.applyAwarenessUpdate(doc.awareness, decoding.readVarUint8Array(decoder), ws);
           break;
-
-        case syncProtocol.messageYjsUpdate:
-          // Client sent an update, apply and broadcast
-          syncProtocol.readUpdate(decoder, room.doc, null);
-          
-          // Broadcast update to all OTHER clients in the room
-          room.clients.forEach((client) => {
-            if (client !== ws && client.readyState === WebSocket.OPEN) {
-              client.send(uint8Message);
-            }
-          });
-          
-          console.log(`📝 Applied and broadcasted update to ${room.clients.size - 1} other client(s)`);
-          break;
-
-        default:
-          console.warn(`⚠️ Unknown message type: ${messageType}`);
       }
-    } catch (error) {
-      // Silently ignore corrupted messages from old cached clients
-      console.warn(`⚠️ Ignored corrupted message from client in room "${roomName}"`);
-    }
-  });
- 
-  ws.on('close', () => {
-    room.clients.delete(ws);
-    console.log(`👋 Client disconnected from room: "${roomName}"`);
-    console.log(`� Room "${roomName}" now has ${room.clients.size} client(s)`);
-    
-    // Clean up empty rooms
-    if (room.clients.size === 0) {
-      rooms.delete(roomName);
-      console.log(`🗑️ Removed empty room: "${roomName}"`);
+    } catch (err) {
+      console.error('Error processing message:', err);
     }
   });
 
+  ws.on('close', () => {
+    closeConn(doc, ws);
+    console.log(`👋 Client disconnected from "${roomName}"`);
+  });
+  
   ws.on('error', (error) => {
-    console.error('❌ WebSocket error:', error);
+    console.error(`❌ WebSocket error in "${roomName}":`, error);
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`✅ Yjs WebSocket server running on ws://localhost:${PORT}`);
+  console.log(`Yjs WebSocket server running on ws://localhost:${PORT}`);
+  console.log(`Using official y-websocket setupWSConnection`);
 });
 
 process.on('SIGINT', () => {
-  console.log('\n🛑 Shutting down server...');
+  console.log('Shutting down server...');
   wss.clients.forEach((client) => client.close());
   server.close(() => {
-    console.log('✅ Server closed');
+    console.log('Server closed');
     process.exit(0);
   });
 });
