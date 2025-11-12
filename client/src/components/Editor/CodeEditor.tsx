@@ -143,11 +143,17 @@ const CodeEditor: React.FC = () => {
       }, 2000);
     });
 
-    // Create Monaco binding
+    // Create Monaco binding with awareness
     const model = editor.getModel();
     if (model) {
-      const binding = new MonacoBinding(ytext, model);
+      console.log('🔗 Creating MonacoBinding with awareness...');
+      const binding = new MonacoBinding(
+        ytext,
+        model,
+        provider.awareness
+      );
       bindingRef.current = binding;
+      console.log('✅ MonacoBinding created');
     }
 
     console.log('✅ Yjs setup complete');

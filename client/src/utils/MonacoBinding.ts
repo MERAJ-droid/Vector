@@ -31,14 +31,18 @@ export class MonacoBinding {
 
     // Listen to Yjs changes and update Monaco
     this._ytextObserver = (event: Y.YTextEvent) => {
+      console.log('🔔 Y.Text observer triggered:', event.delta);
       this._mux(() => {
+        console.log('🔓 Inside mutex, processing delta...');
         let index = 0;
         event.delta.forEach((delta: any) => {
           if (delta.retain !== undefined) {
+            console.log('  ↪️ Retain:', delta.retain);
             index += delta.retain;
           } else if (delta.insert !== undefined) {
             const pos = monacoModel.getPositionAt(index);
             const insert = typeof delta.insert === 'string' ? delta.insert : '';
+            console.log('  ➕ Insert at', index, ':', insert);
             monacoModel.applyEdits([
               {
                 range: {
@@ -54,6 +58,7 @@ export class MonacoBinding {
           } else if (delta.delete !== undefined) {
             const pos = monacoModel.getPositionAt(index);
             const endPos = monacoModel.getPositionAt(index + delta.delete);
+            console.log('  ➖ Delete from', index, 'to', index + delta.delete);
             monacoModel.applyEdits([
               {
                 range: {
@@ -67,6 +72,7 @@ export class MonacoBinding {
             ]);
           }
         });
+        console.log('✅ Delta processing complete');
       });
     };
 
@@ -74,15 +80,20 @@ export class MonacoBinding {
 
     // Listen to Monaco changes and update Yjs
     this._monacoChangeHandler = monacoModel.onDidChangeContent((event) => {
+      console.log('⌨️ Monaco change detected:', event.changes.length, 'changes');
       this._mux(() => {
+        console.log('🔓 Inside mutex, updating Y.Text...');
         ytext.doc?.transact(() => {
           event.changes
             .sort((a, b) => b.rangeOffset - a.rangeOffset)
             .forEach((change) => {
+              console.log('  📝 Change at', change.rangeOffset, ':', 
+                'delete', change.rangeLength, 'insert', change.text.substring(0, 20));
               ytext.delete(change.rangeOffset, change.rangeLength);
               ytext.insert(change.rangeOffset, change.text);
             });
         }, this);
+        console.log('✅ Y.Text update complete');
       });
     });
   }
