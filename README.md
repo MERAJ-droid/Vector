@@ -1,164 +1,84 @@
-<!-- # Vector - Real-Time Collaborative Code Editor
+<div align="center">
+  <br />
+  <h1>⚡ Vector</h1>
+  <p>
+    <strong>A high-performance, real-time collaborative code editor built for the web.</strong>
+  </p>
+  <br />
+</div>
 
-A modern, real-time collaborative code editor built with Node.js, React, and PostgreSQL.
+## ✨ Overview
 
-## 🚀 Features
+Vector is a production-ready, real-time collaborative code editor designed to provide a seamless pair-programming experience. Built on top of the powerful Monaco Editor (the engine behind VS Code) and powered by Conflict-free Replicated Data Types (CRDTs), Vector ensures conflict-free syncing across multiple clients with zero merge conflicts.
 
-- **Real-time Collaboration**: Multiple users can edit the same file simultaneously
-- **Project Management**: Create and organize coding projects
-- **File Management**: Create, edit, and manage files within projects
-- **User Authentication**: Secure JWT-based authentication system
-- **Monaco Editor**: Powered by the same editor as VS Code
-- **WebSocket Support**: Real-time updates via Socket.IO
-- **Phase 2 Ready**: Prepared for Yjs CRDT integration
+With a robust architecture utilizing WebSockets, Redis, and PostgreSQL, Vector guarantees low-latency collaboration, resilient state recovery, and persistent document history.
+
+## 🚀 Key Features
+
+- **Real-Time Collaboration:** Millisecond-latency code synchronization using Yjs and WebSockets.
+- **Monaco Editor Engine:** Full syntax highlighting, auto-completion, and VS Code-like keybindings.
+- **Live Cursors & Awareness:** See exactly where your teammates are typing in real-time.
+- **Robust Persistence:** Two-tier caching strategy (Redis for hot state, Supabase PostgreSQL for persistent truth) ensuring data integrity and fast cold starts.
+- **Version History & Checkpoints:** Intelligent auto-saving and checkpointing system allowing you to restore previous document states.
+- **Modern IDE Interface:** Complete with an Activity Bar, File Explorer, Editor Tabs, and Search Panel for a familiar developer experience.
 
 ## 🛠️ Tech Stack
 
+### Frontend
+- **React 18** — Component architecture and UI state
+- **Monaco Editor** — Core editing engine
+- **Yjs & y-monaco** — CRDT implementation and editor binding
+
 ### Backend
-- **Node.js** with **TypeScript**
-- **Express.js** for REST APIs
-- **PostgreSQL** for data persistence
-- **Socket.IO** for real-time communication
-- **JWT** for authentication
-- **bcrypt** for password hashing
+- **Node.js & Express** — RESTful API services
+- **y-websocket** — Real-time collaboration server
+- **Redis** — High-throughput, low-latency CRDT state caching
+- **Supabase (PostgreSQL)** — Persistent storage and version history
 
-### Frontend (Coming Soon)
-- **React** with **TypeScript**
-- **Monaco Editor** for code editing
-- **Socket.IO Client** for real-time features
+## 🏗️ Architecture Highlight
 
-## 📁 Project Structure
-
-```
-vector/
-├── .env                          # Environment variables
-├── server/                       # Backend Node.js server
-│   ├── src/
-│   │   ├── config/
-│   │   │   └── database.ts       # PostgreSQL connection
-│   │   ├── middleware/
-│   │   │   └── auth.ts           # JWT authentication
-│   │   ├── routes/
-│   │   │   ├── auth.ts           # Authentication routes
-│   │   │   ├── files.ts          # File management
-│   │   │   └── projects.ts       # Project management
-│   │   └── index.ts              # Server entry point
-│   ├── package.json
-│   └── tsconfig.json
-└── client/                       # Frontend React app (TBD)
-```
-
-## 🗄️ Database Schema
-
-### Users
-- `id`, `username`, `email`, `password_hash`, `created_at`
-
-### Projects
-- `id`, `owner_id`, `project_name`, `created_at`, `updated_at`
-
-### Files
-- `id`, `project_id`, `filename`, `content`, `is_collaborative`, `language`, `created_at`, `updated_at`
-
-### Yjs Snapshots (Phase 2)
-- `id`, `file_id`, `snapshot_data`, `sequence_number`, `created_at`
+Vector's synchronization architecture is built to handle connection drops, tab-switching, and concurrent room loads elegantly:
+- **Non-Blocking Staleness Eviction:** Validates Redis state against PostgreSQL asynchronously, preventing connection timeouts during cold starts.
+- **Strict Binding Lifecycle:** Enforces a single-owner model for editor bindings, utilizing React 18 strict mode and keyed component unmounting to prevent memory leaks and cross-file state bleeding.
+- **Atomic Operations:** Uses Redis pipelines and PostgreSQL `pgcrypto` hashes to maintain strict synchronization integrity between the caching layer and the database.
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js 18+
-- PostgreSQL 12+
-- npm or yarn
+- Node.js (v18+)
+- Redis instance
+- PostgreSQL (Supabase recommended)
 
 ### Installation
 
-1. **Clone the repository**
+1. **Clone the repository:**
    ```bash
-   git clone <repository-url>
-   cd vector
+   git clone https://github.com/MERAJ-droid/Vector.git
+   cd Vector
    ```
 
-2. **Set up environment variables**
+2. **Install dependencies:**
    ```bash
-   cp .env.example .env
-   # Edit .env with your database credentials
+   cd server && npm install
+   cd ../client && npm install
    ```
 
-3. **Install backend dependencies**
+3. **Environment Setup:**
+   Create a `.env` file in the root directory and configure your database and Redis URLs (see `server/.env.example`).
+
+4. **Run the services:**
+   Open three terminal windows and run the following:
    ```bash
-   cd server
-   npm install
+   # Terminal 1: REST API
+   cd server && npm run dev
+
+   # Terminal 2: YJS Collaboration Server
+   cd server && npm run dev:yjs
+
+   # Terminal 3: React Client
+   cd client && npm start
    ```
 
-4. **Set up PostgreSQL database**
-   - Create a database named `vector`
-   - Run the SQL schema (provided separately)
+## 📜 License
 
-5. **Start the development server**
-   ```bash
-   npm run dev
-   ```
-
-The server will start on `http://localhost:5000`
-
-## 📡 API Endpoints
-
-### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - Login user
-
-### Projects
-- `GET /api/projects` - Get user projects
-- `POST /api/projects` - Create new project
-- `GET /api/projects/:id` - Get project details
-- `GET /api/projects/:id/files` - Get project files
-- `POST /api/projects/:id/files` - Create file in project
-
-### Files
-- `GET /api/files/:id` - Get file content
-- `PUT /api/files/:id` - Update file content
-- `POST /api/files/:id/snapshot` - Save Yjs snapshot (Phase 2)
-- `GET /api/files/:id/snapshot` - Get Yjs snapshot (Phase 2)
-
-### Health
-- `GET /api/health` - Server health check
-
-## 🔌 WebSocket Events
-
-- `join-file` - Join file room for collaboration
-- `leave-file` - Leave file room
-- `text-change` - Broadcast text changes (Phase 1)
-
-## 🗺️ Roadmap
-
-### Phase 1 (Current) ✅
-- [x] Backend API with authentication
-- [x] Basic project and file management
-- [x] Simple real-time text sync
-- [x] Database schema and connection
-- [ ] Frontend React application
-- [ ] Monaco Editor integration
-
-### Phase 2 (Future)
-- [ ] Yjs CRDT integration
-- [ ] Advanced collaborative features
-- [ ] Conflict resolution
-- [ ] User presence indicators
-- [ ] File permissions and sharing
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- Built with inspiration from VS Code and collaborative editors
-- Monaco Editor for the excellent code editing experience
-- Yjs for future CRDT implementation -->
+This project is licensed under the MIT License.
