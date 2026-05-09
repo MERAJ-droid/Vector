@@ -3,10 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Editor } from '@monaco-editor/react';
 import { useAuth } from '../../context/AuthContext';
 import { filesAPI } from '../../services/api';
+import { sharingAPI } from '../../services/sharingAPI';
 import { File } from '../../types';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from '../../utils/MonacoBinding';
+import ShareModal from '../Sharing/ShareModal';
+import CollaboratorsList from '../Sharing/CollaboratorsList';
+import VersionHistory from '../Versions/VersionHistory';
+import DiffViewer from '../Versions/DiffViewer';
 import type { editor as MonacoEditor } from 'monaco-editor';
 import './Editor.css';
 
@@ -20,11 +25,19 @@ const CodeEditor: React.FC = () => {
   const [error, setError] = useState('');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [connectedUsers, setConnectedUsers] = useState<number>(0);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [showCollaborators, setShowCollaborators] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [viewingVersionId, setViewingVersionId] = useState<number | null>(null);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const connectionCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isSettingUpRef = useRef<boolean>(false); // Prevent multiple simultaneous setups
+  const lastSavedContentRef = useRef<string>('');
 
   useEffect(() => {
     if (fileId) {
@@ -33,26 +46,65 @@ const CodeEditor: React.FC = () => {
 
     return () => {
       // Cleanup on unmount
+      console.log('🧹 Component unmounting - cleaning up Yjs...');
+      isSettingUpRef.current = false;
+      
       if (bindingRef.current) {
         bindingRef.current.destroy();
+        bindingRef.current = null;
       }
       if (providerRef.current) {
+        // Explicitly remove awareness before destroying
+        providerRef.current.awareness.setLocalState(null);
         providerRef.current.destroy();
+        providerRef.current = null;
       }
       if (ydocRef.current) {
         ydocRef.current.destroy();
+        ydocRef.current = null;
       }
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      if (connectionCheckIntervalRef.current) {
+        clearInterval(connectionCheckIntervalRef.current);
+        connectionCheckIntervalRef.current = null;
       }
     };
   }, [fileId]);
+
+  // Update editor readOnly state when file permission changes
+  useEffect(() => {
+    if (editorRef.current && file?.permission) {
+      const isReadOnly = !file.permission.canWrite;
+      console.log(`🔒 Permission changed - Setting editor readOnly to: ${isReadOnly} (permission: ${file.permission.level})`);
+      
+      // Force readOnly mode
+      editorRef.current.updateOptions({
+        readOnly: isReadOnly,
+        // Additional safeguards
+        cursorStyle: isReadOnly ? 'line-thin' : 'line',
+      });
+      
+      // Also update MonacoBinding's readOnly mode
+      if (bindingRef.current) {
+        bindingRef.current.setReadOnlyMode(isReadOnly);
+      }
+      
+      // For viewers, also block the editor model from accepting edits
+      if (isReadOnly && editorRef.current.getModel()) {
+        console.log('🚫 Viewer mode active - editor is completely read-only');
+      }
+    }
+  }, [file?.permission]);
 
   const loadFile = async (id: number) => {
     try {
       setIsLoading(true);
       const response = await filesAPI.getFile(id);
       setFile(response.file);
+      lastSavedContentRef.current = response.file.content || '';
       setError('');
     } catch (error: any) {
       setError('Failed to load file');
@@ -64,17 +116,31 @@ const CodeEditor: React.FC = () => {
 
   const saveSnapshot = async () => {
     if (!file || !ydocRef.current) return;
+    
+    // Don't auto-save if user doesn't have write permission
+    if (file.permission && !file.permission.canWrite) {
+      console.log('⛔ Viewer cannot save - skipping auto-save');
+      return;
+    }
+
+    const currentContent = ydocRef.current.getText('monaco').toString();
+    
+    // Only save if content actually changed
+    if (currentContent === lastSavedContentRef.current) {
+      console.log('⏭️ Content unchanged, skipping save');
+      return;
+    }
 
     try {
       setIsSaving(true);
-      // TEMP: Snapshot saving disabled for testing
-      // Just save regular content for now
       await filesAPI.updateFile(file.id, { 
-        content: ydocRef.current.getText('monaco').toString()
+        content: currentContent
       });
       
+      lastSavedContentRef.current = currentContent;
       setLastSaved(new Date());
       setError('');
+      console.log('💾 Content saved');
     } catch (error: any) {
       setError('Failed to save file');
       console.error('Save error:', error);
@@ -83,15 +149,65 @@ const CodeEditor: React.FC = () => {
     }
   };
 
-  const setupYjs = (editor: MonacoEditor.IStandaloneCodeEditor, file: File) => {
+  const setupYjs = async (editor: MonacoEditor.IStandaloneCodeEditor, file: File, isRestoring: boolean = false) => {
     if (!fileId) return;
 
-    console.log('🔧 Setting up Yjs collaboration...');
+    // GUARD: Prevent multiple simultaneous setups
+    if (isSettingUpRef.current) {
+      console.log('⏭️  Setup already in progress, skipping...');
+      return;
+    }
+    isSettingUpRef.current = true;
+
+    console.log(`🔧 Setting up Yjs collaboration... (isRestoring: ${isRestoring})`);
+
+    // CRITICAL: Clean up old connections first to prevent multiple connections!
+    if (bindingRef.current) {
+      console.log('🧹 Destroying old MonacoBinding...');
+      bindingRef.current.destroy();
+      bindingRef.current = null;
+    }
+    if (providerRef.current) {
+      console.log('🧹 Destroying old WebsocketProvider...');
+      // Explicitly remove our awareness state before destroying
+      providerRef.current.awareness.setLocalState(null);
+      providerRef.current.disconnect();
+      providerRef.current.destroy();
+      providerRef.current = null;
+      
+      // Wait for WebSocket to fully close before creating new connection
+      console.log('⏳ Waiting for old connection to close...');
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    if (ydocRef.current) {
+      console.log('🧹 Destroying old Y.Doc...');
+      ydocRef.current.destroy();
+      ydocRef.current = null;
+    }
+    
+    // Clear connection status
+    if (connectionCheckIntervalRef.current) {
+      clearInterval(connectionCheckIntervalRef.current);
+      connectionCheckIntervalRef.current = null;
+    }
 
     // Create Yjs document
     const ydoc = new Y.Doc();
     ydocRef.current = ydoc;
     const ytext = ydoc.getText('monaco');
+
+    // Get Monaco content
+    const model = editor.getModel();
+    const monacoContent = model?.getValue() || '';
+    
+    // Only pre-populate if NOT restoring
+    // When restoring, we'll force-set after sync to override server state
+    if (monacoContent && !isRestoring) {
+      ytext.insert(0, monacoContent);
+      console.log(`📝 Pre-populated Y.Doc with ${monacoContent.length} chars from Monaco`);
+    } else if (isRestoring && monacoContent) {
+      console.log(`⚠️ Restoring: Will force-set ${monacoContent.length} chars after sync`);
+    }
 
     // Connect using WebsocketProvider
     const roomName = `file-${fileId}`;
@@ -101,34 +217,103 @@ const CodeEditor: React.FC = () => {
     console.log(`🌐 Connecting to room: "${roomName}"`);
     console.log(`📄 Doc ID: ${ydoc.guid}`);
 
+
     // Set up user awareness (presence)
     if (user) {
+      const clientId = `${user.username}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       provider.awareness.setLocalStateField('user', {
         name: user.username,
         color: getRandomColor(),
+        clientId: clientId, // Unique ID for this tab/session
       });
+      console.log(`👤 Set awareness for: ${user.username} (clientId: ${clientId})`);
     }
 
-    // Track connected users
+    // Track connected users - deduplicate by username for display
     provider.awareness.on('change', () => {
       const states = provider.awareness.getStates();
-      const userCount = states.size;
+      
+      // Only count states that have a user set (filter out empty/lingering states)
+      const activeUsers = Array.from(states.values()).filter((state: any) => state.user?.name);
+      
+      // Deduplicate by username for display (but keep all connections active)
+      const uniqueUsernames = new Set(activeUsers.map((state: any) => state.user?.name));
+      const userCount = uniqueUsernames.size;
       setConnectedUsers(userCount);
-      console.log(`👥 ${userCount} user(s) connected`);
+      
+      // Debug: show all connected users with client IDs
+      const userDetails = activeUsers.map((state: any) => 
+        `${state.user?.name}(${state.user?.clientId?.substr(-4)})`
+      );
+      console.log(`👥 ${userCount} unique user(s): [${Array.from(uniqueUsernames).join(', ')}]`);
+      console.log(`   ${activeUsers.length} total sessions: [${userDetails.join(', ')}]`);
+      console.log(`   (Total awareness states: ${states.size})`);
     });
+
+    // Track connection status with timeout for failed connections
+    let connectionAttempts = 0;
+    let lastConnectedTime = Date.now();
+    let currentStatus = 'connecting';
 
     provider.on('status', (event: any) => {
       console.log(`📡 WebSocket status: ${event.status}`);
+      if (event.status === 'connected') {
+        setConnectionStatus('connected');
+        currentStatus = 'connected';
+        connectionAttempts = 0;
+        lastConnectedTime = Date.now();
+      } else if (event.status === 'disconnected') {
+        setConnectionStatus('disconnected');
+        currentStatus = 'disconnected';
+      } else {
+        // Connecting status - always show connecting initially
+        currentStatus = 'connecting';
+        setConnectionStatus('connecting');
+        connectionAttempts++;
+      }
     });
 
+    // Track connection errors to immediately show disconnected
+    provider.on('connection-error', () => {
+      console.log('❌ WebSocket connection error');
+      connectionAttempts++;
+      if (connectionAttempts > 1) {
+        setConnectionStatus('disconnected');
+      }
+    });
+
+    // Periodic check for stuck "connecting" state
+    connectionCheckIntervalRef.current = setInterval(() => {
+      const timeSinceLastConnection = Date.now() - lastConnectedTime;
+      // If connecting for more than 5 seconds, mark as disconnected
+      if (currentStatus === 'connecting' && timeSinceLastConnection > 5000) {
+        console.log('⚠️ Connection timeout - marking as disconnected');
+        setConnectionStatus('disconnected');
+        currentStatus = 'disconnected';
+      }
+    }, 2000);
+
     provider.on('sync', (isSynced: boolean) => {
-      console.log(`🔄 Sync status: ${isSynced}`);
+      console.log(`🔄 Sync status: ${isSynced}, ytext length: ${ytext.length}`);
       
-      // If document is synced and empty, insert file content
-      if (isSynced && ytext.length === 0 && file.content) {
-        ytext.insert(0, file.content);
-        console.log('📄 Inserted initial file content');
-      } else if (isSynced) {
+      if (isSynced) {
+        // If restoring, force-set the restored content to override server state
+        if (isRestoring && monacoContent) {
+          console.log(`🔄 RESTORE MODE: Forcing server to accept ${monacoContent.length} chars`);
+          ydoc.transact(() => {
+            // Clear whatever came from server
+            if (ytext.length > 0) {
+              ytext.delete(0, ytext.length);
+            }
+            // Insert restored content
+            ytext.insert(0, monacoContent);
+          });
+          console.log(`✅ Forced update: Y.Doc now has ${ytext.length} chars (should match restored content)`);
+        }
+        
+        // After sync (and possible restore), use Y.Doc as source of truth
+        const syncedContent = ytext.toString();
+        lastSavedContentRef.current = syncedContent;
         console.log(`✅ Document synced with ${ytext.length} chars`);
       }
     });
@@ -143,26 +328,28 @@ const CodeEditor: React.FC = () => {
       }, 2000);
     });
 
-    // Create Monaco binding with awareness
-    const model = editor.getModel();
+    // Create Monaco binding with awareness (reuse model from above)
     if (model) {
       console.log('🔗 Creating MonacoBinding with awareness...');
+      const isReadOnly = file.permission ? !file.permission.canWrite : false;
       const binding = new MonacoBinding(
         ytext,
         model,
-        provider.awareness
+        provider.awareness,
+        isReadOnly
       );
       bindingRef.current = binding;
-      console.log('✅ MonacoBinding created');
+      console.log(`✅ MonacoBinding created (readOnly: ${isReadOnly})`);
     }
 
+    isSettingUpRef.current = false; // Setup complete
     console.log('✅ Yjs setup complete');
   };
 
   const handleEditorDidMount = (editor: MonacoEditor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
     
-    // Configure editor
+    // Configure editor first
     editor.updateOptions({
       fontSize: 14,
       lineHeight: 21,
@@ -174,7 +361,18 @@ const CodeEditor: React.FC = () => {
 
     // Setup Yjs collaboration after editor is mounted
     if (file) {
-      setupYjs(editor, file);
+      // Check permission and set read-only mode AFTER Yjs setup
+      const isReadOnly = file.permission ? !file.permission.canWrite : true;
+      console.log(`📝 Editor mounted, setting readOnly: ${isReadOnly} (permission: ${file.permission?.level || 'loading'})`);
+      
+      // Call async setup (don't await to avoid blocking editor mount)
+      setupYjs(editor, file).catch(err => console.error('Setup error:', err));
+      
+      // Apply readOnly AFTER Yjs setup to ensure it takes precedence
+      setTimeout(() => {
+        editor.updateOptions({ readOnly: isReadOnly });
+        console.log(`🔒 ReadOnly enforced: ${isReadOnly}`);
+      }, 100);
     }
   };
 
@@ -216,6 +414,62 @@ const CodeEditor: React.FC = () => {
     return colors[Math.floor(Math.random() * colors.length)];
   };
 
+  const handleShare = async (username: string, permissionLevel: 'editor' | 'viewer') => {
+    if (!file) return;
+    await sharingAPI.shareFile(file.id, username, permissionLevel);
+  };
+
+  const handleRestoreVersion = async (versionId: number) => {
+    if (!fileId) return;
+    
+    // Close version panel
+    setShowVersionHistory(false);
+    setViewingVersionId(null);
+    
+    // Destroy current Yjs connection
+    if (bindingRef.current) {
+      bindingRef.current.destroy();
+      bindingRef.current = null;
+    }
+    if (providerRef.current) {
+      providerRef.current.destroy();
+      providerRef.current = null;
+    }
+    if (ydocRef.current) {
+      ydocRef.current.destroy();
+      ydocRef.current = null;
+    }
+    
+    // Reload the file from server (with restored content)
+    try {
+      const response = await filesAPI.getFile(parseInt(fileId));
+      setFile(response.file);
+      const restoredContent = response.file.content || '';
+      lastSavedContentRef.current = restoredContent;
+      
+      // Update Monaco editor with restored content
+      if (editorRef.current) {
+        const model = editorRef.current.getModel();
+        if (model) {
+          model.setValue(restoredContent);
+          console.log(`📝 Set editor content to restored version (${restoredContent.length} chars)`);
+        }
+        
+        // Re-setup Yjs - it will FORCE the restored content to override server state
+        await setupYjs(editorRef.current, response.file, true);
+      }
+    } catch (error) {
+      console.error('Failed to reload file after restore:', error);
+      setError('Failed to reload file');
+    }
+  };
+
+  const handleViewVersion = (versionId: number) => {
+    const currentContent = ydocRef.current?.getText('monaco').toString() || file?.content || '';
+    console.log(`📖 Opening version comparison - Current content length: ${currentContent.length}`);
+    setViewingVersionId(versionId);
+  };
+
   if (isLoading) {
     return (
       <div className="editor-loading">
@@ -248,14 +502,43 @@ const CodeEditor: React.FC = () => {
           </button>
           <div className="file-info">
             <h2>{file?.filename}</h2>
-            <span className="project-name">in {file?.projectName}</span>
+            {file?.projectName && <span className="project-name">in {file.projectName}</span>}
           </div>
         </div>
-        
         <div className="editor-status">
-          <span className="collaborators">
-            👥 {connectedUsers} {connectedUsers === 1 ? 'user' : 'users'} connected
+          {file?.permission && (
+            <span className={`permission-badge ${file.permission.level}`}>
+              {file.permission.level === 'owner' && '👑 Owner'}
+              {file.permission.level === 'editor' && '✏️ Editor'}
+              {file.permission.level === 'viewer' && '👁️ Viewer'}
+            </span>
+          )}
+          <span className={`connection-status ${connectionStatus}`} title={`Connection: ${connectionStatus}`}>
+            {connectionStatus === 'connected' && '🟢 Connected'}
+            {connectionStatus === 'connecting' && '🟡 Connecting...'}
+            {connectionStatus === 'disconnected' && '🔴 Disconnected'}
           </span>
+          <button
+            onClick={() => setShowShareModal(true)}
+            className="share-btn"
+            title="Share this file"
+          >
+            🔗 Share
+          </button>
+          <button
+            onClick={() => setShowCollaborators(!showCollaborators)}
+            className="collaborators-btn"
+            title="View collaborators"
+          >
+            👥 {connectedUsers} {connectedUsers === 1 ? 'user' : 'users'}
+          </button>
+          <button
+            onClick={() => setShowVersionHistory(!showVersionHistory)}
+            className="version-history-btn"
+            title="View version history"
+          >
+            🕐 History
+          </button>
           {isSaving && <span className="saving-indicator">Saving...</span>}
           {lastSaved && (
             <span className="last-saved">
@@ -266,17 +549,52 @@ const CodeEditor: React.FC = () => {
         </div>
       </header>
 
+      {showShareModal && file && (
+        <ShareModal
+          fileId={file.id}
+          filename={file.filename}
+          onClose={() => setShowShareModal(false)}
+          onShare={handleShare}
+        />
+      )}
+
+      {showCollaborators && file && (
+        <CollaboratorsList
+          fileId={file.id}
+          currentUserId={user?.id}
+          onUpdate={() => {/* Optionally refresh something */}}
+        />
+      )}
+
+      {showVersionHistory && file && (
+        <VersionHistory
+          fileId={file.id}
+          onRestore={handleRestoreVersion}
+          onViewVersion={handleViewVersion}
+          onClose={() => setShowVersionHistory(false)}
+        />
+      )}
+
+      {viewingVersionId && file && (
+        <DiffViewer
+          fileId={file.id}
+          versionId={viewingVersionId}
+          currentContent={ydocRef.current?.getText('monaco').toString() || file.content}
+          onClose={() => setViewingVersionId(null)}
+        />
+      )}
+
       <div className="editor-container">
         <Editor
           height="calc(100vh - 80px)"
           language={file ? getLanguageFromFilename(file.filename) : 'plaintext'}
-          defaultValue={file?.content || ''}
+          defaultValue=""
           onMount={handleEditorDidMount}
           theme="vs-dark"
           options={{
             selectOnLineNumbers: true,
             roundedSelection: false,
-            readOnly: false,
+            readOnly: file?.permission ? !file.permission.canWrite : true,
             cursorStyle: 'line',
             automaticLayout: true,
             glyphMargin: true,

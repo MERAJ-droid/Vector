@@ -12,8 +12,17 @@ export interface Project {
   updated_at: string;
 }
 
+export interface FilePermission {
+  level: 'owner' | 'editor' | 'viewer';
+  canRead: boolean;
+  canWrite: boolean;
+  canShare: boolean;
+  canDelete: boolean;
+}
+
 export interface File {
   id: number;
+  project_id?: number;
   filename: string;
   content: string;
   language: string;
@@ -22,6 +31,14 @@ export interface File {
   updatedAt: string;
   projectName?: string;
   snapshot?: number[];
+  /**
+   * SHA-256 hex hash of files.content computed in PostgreSQL via pgcrypto at query time.
+   * Present only on responses from GET /files/:id after the pgcrypto migration has run.
+   * Optional: the client state machine skips hash verification with a warning log when absent,
+   * rather than treating absence as a sync inconsistency.
+   */
+  contentHash?: string;
+  permission?: FilePermission;
 }
 
 export interface AuthResponse {

@@ -1,0 +1,155 @@
+@import '../../design-tokens.css';
+
+.users-panel {
+  padding: 8px 0;
+  font-family: var(--font-ui);
+}
+
+.users-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  gap: 10px;
+  color: var(--color-text-muted);
+}
+
+.users-empty svg {
+  opacity: 0.4;
+}
+
+.users-empty p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* Sections */
+.users-section {
+  padding: 8px 12px;
+}
+
+.section-label {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+
+.section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.section-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast);
+}
+
+.section-toggle:hover {
+  color: var(--color-text-primary);
+}
+
+.panel-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 2px 0;
+}
+
+/* Live status */
+.live-status-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+}
+
+.status-icon {
+  color: var(--color-accent);
+}
+
+/* Subtle pulse animation for the Radio icon */
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.status-icon.pulse {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.live-count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Collaborators list wrapper */
+.collaborators-wrap {
+  font-size: var(--font-size-sm);
+}
+
+/* Share actions */
+.share-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.share-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-ui);
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  width: 100%;
+  text-align: left;
+}
+
+.share-action-btn:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent-border);
+  color: var(--color-text-accent);
+}
+
+/* Permission legend */
+.permission-legend {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}

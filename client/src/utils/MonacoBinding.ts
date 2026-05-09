@@ -13,15 +13,18 @@ export class MonacoBinding {
   private _monacoChangeHandler: IDisposable | null = null;
   private _ytextObserver: ((event: Y.YTextEvent) => void) | null = null;
   private _mux = createMutex();
+  private _readOnlyMode: boolean = false;
 
   constructor(
     ytext: Y.Text,
     monacoModel: editor.ITextModel,
-    awareness: Awareness | null = null
+    awareness: Awareness | null = null,
+    readOnlyMode: boolean = false
   ) {
     this.ytext = ytext;
     this.monacoModel = monacoModel;
     this.awareness = awareness;
+    this._readOnlyMode = readOnlyMode;
 
     // Initial sync from Yjs to Monaco
     const ytextValue = ytext.toString();
@@ -81,6 +84,13 @@ export class MonacoBinding {
     // Listen to Monaco changes and update Yjs
     this._monacoChangeHandler = monacoModel.onDidChangeContent((event) => {
       console.log('⌨️ Monaco change detected:', event.changes.length, 'changes');
+      
+      // Don't propagate changes to Yjs if in read-only mode
+      if (this._readOnlyMode) {
+        console.log('🚫 Read-only mode - blocking local changes from syncing to Yjs');
+        return;
+      }
+      
       this._mux(() => {
         console.log('🔓 Inside mutex, updating Y.Text...');
         ytext.doc?.transact(() => {
@@ -96,6 +106,15 @@ export class MonacoBinding {
         console.log('✅ Y.Text update complete');
       });
     });
+  }
+
+  /**
+   * Update the read-only mode of the binding
+   * When true, local changes won't be propagated to Yjs
+   */
+  setReadOnlyMode(readOnly: boolean) {
+    console.log(`🔒 MonacoBinding: Setting readOnly mode to ${readOnly}`);
+    this._readOnlyMode = readOnly;
   }
 
   destroy() {

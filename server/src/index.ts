@@ -9,6 +9,8 @@ import pool from './config/database';
 import authRoutes from './routes/auth';
 import projectRoutes from './routes/projects';
 import fileRoutes from './routes/files';
+import sharingRoutes from './routes/sharing';
+import versionRoutes from './routes/versions';
 
 dotenv.config();
 
@@ -41,6 +43,8 @@ pool.query('SELECT NOW()', (err, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/files', fileRoutes);
+app.use('/api/sharing', sharingRoutes);
+app.use('/api/versions', versionRoutes);
 
 // Basic health check
 app.get('/api/health', (req, res) => {

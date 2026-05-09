@@ -1,0 +1,76 @@
+@import '../../design-tokens.css';
+
+.activity-bar {
+  width: var(--activity-bar-width);
+  min-width: var(--activity-bar-width);
+  height: 100%;
+  background: var(--color-bg-deep);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  flex-shrink: 0;
+  user-select: none;
+  z-index: 10;
+}
+
+.activity-bar-top,
+.activity-bar-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+}
+
+.activity-bar-item {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: color var(--transition-fast);
+  border-radius: 0;
+  outline: none;
+}
+
+.activity-bar-item:hover {
+  color: var(--color-text-primary);
+}
+
+.activity-bar-item.active {
+  color: var(--color-text-primary);
+}
+
+.activity-bar-item.no-panel {
+  cursor: default;
+}
+
+.activity-bar-item.no-panel:hover {
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+/* Left accent bar for active item */
+.active-indicator {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 24px;
+  background: var(--color-accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* Lucide icon sizing fix */
+.activity-bar-item svg {
+  flex-shrink: 0;
+}

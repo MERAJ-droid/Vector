@@ -1,0 +1,60 @@
+/* ==========================================================
+   VECTOR — Design Tokens
+   Palette: Blue · White · Black only (shades & opacities OK)
+   ========================================================== */
+
+:root {
+  /* --- Backgrounds --- */
+  --color-bg-void:       #0a0c10;   /* deepest bg — body / editor canvas */
+  --color-bg-deep:       #0d1117;   /* activity bar */
+  --color-bg-panel:      #131820;   /* sidebar, toolbar strips */
+  --color-bg-surface:    #1a2233;   /* cards, panels, tabs inactive */
+  --color-bg-hover:      #1e2a40;   /* hover state */
+  --color-bg-active:     #233050;   /* active / selected row */
+  --color-bg-overlay:    rgba(13,17,23,0.85); /* modal backdrop */
+
+  /* --- Accent Blue --- */
+  --color-accent:        #3b82f6;   /* primary blue */
+  --color-accent-dim:    rgba(59,130,246,0.15);
+  --color-accent-border: rgba(59,130,246,0.40);
+  --color-accent-glow:   rgba(59,130,246,0.08);
+
+  /* --- Text --- */
+  --color-text-primary:  #e8edf5;
+  --color-text-secondary:#8899b4;
+  --color-text-muted:    #4a5c78;
+  --color-text-accent:   #7cb4ff;
+
+  /* --- Borders --- */
+  --color-border:        rgba(255,255,255,0.06);
+  --color-border-strong: rgba(255,255,255,0.12);
+
+  /* --- Status (blue-only palette for status dots) --- */
+  --color-status-connected:    #60a5fa; /* blue-400 */
+  --color-status-connecting:   #93c5fd; /* blue-300 */
+  --color-status-disconnected: #1e3a5f; /* very dim blue */
+
+  /* --- Sizing --- */
+  --activity-bar-width:  48px;
+  --sidebar-width:       240px;
+  --tab-bar-height:      35px;
+  --toolbar-height:      28px;
+  --version-bar-height:  28px;
+
+  /* --- Radii --- */
+  --radius-sm:   3px;
+  --radius-md:   6px;
+  --radius-full: 999px;
+
+  /* --- Fonts --- */
+  --font-ui:     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:   'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --font-size-xs: 10px;
+  --font-size-sm: 11px;
+  --font-size-md: 12px;
+  --font-size-lg: 13px;
+
+  /* --- Transitions --- */
+  --transition-fast:   100ms ease;
+  --transition-normal: 180ms ease;
+}

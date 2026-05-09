@@ -1,0 +1,229 @@
+@import '../../design-tokens.css';
+
+/* ── Root shell ── */
+.vscode-editor {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100vh;
+  background: var(--color-bg-void);
+  font-family: var(--font-ui);
+  overflow: hidden;
+  color: var(--color-text-primary);
+}
+
+/* ── Main editor column ── */
+.editor-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-bg-void);
+}
+
+/* ── Editor content area (below tabs+toolbar) ── */
+.editor-container {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Sync overlay: covers Monaco while phase is connecting|syncing ── */
+/* Monaco stays mounted underneath — no remount cost. The overlay is */
+/* removed the moment phase transitions to 'ready' or 'fallback'.    */
+.sync-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--color-bg-void, #0d0d14);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-ui);
+  pointer-events: none;   /* clicks pass through on the off-chance overlay is shown erroneously */
+}
+
+.sync-overlay-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(99, 102, 241, 0.2);
+  border-top-color: rgba(99, 102, 241, 0.8);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+
+/* ── No file open state ── */
+.no-file-open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--color-text-muted);
+}
+
+.no-file-open h2 {
+  font-size: 18px;
+  font-weight: 400;
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.no-file-open p {
+  font-size: var(--font-size-md);
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+/* ── Loading / error screens ── */
+.vscode-editor.loading,
+.vscode-editor.error {
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-message,
+.error-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-lg);
+}
+
+.error-message h3 {
+  margin: 0;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.error-message button {
+  padding: 6px 16px;
+  background: var(--color-accent-dim);
+  border: 1px solid var(--color-accent-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-accent);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.error-message button:hover {
+  background: var(--color-bg-active);
+}
+
+/* ── Sync warning banner (tier-1 timeout: 3000ms) ── */
+/* Appears below the toolbar, above the editor. Does NOT block editing. */
+.sync-warning-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(202, 138, 4, 0.12);   /* amber-600 at low opacity */
+  border-bottom: 1px solid rgba(202, 138, 4, 0.35);
+  color: #fbbf24;                          /* amber-400 */
+  font-size: var(--font-size-sm);
+  font-family: var(--font-ui);
+  user-select: none;
+  animation: banner-slide-in 0.2s ease;
+}
+
+.sync-warning-banner .banner-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* ── Fallback read-only banner (tier-2 timeout: 8000ms) ── */
+/* Appears instead of the warning banner. Blocks editing via readOnly Monaco option. */
+.sync-fallback-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: rgba(180, 83, 9, 0.18);    /* amber-800 at low opacity */
+  border-bottom: 1px solid rgba(180, 83, 9, 0.45);
+  color: #fb923c;                          /* orange-400 */
+  font-size: var(--font-size-sm);
+  font-family: var(--font-ui);
+  user-select: none;
+  animation: banner-slide-in 0.2s ease;
+}
+
+.sync-fallback-banner .banner-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+@keyframes banner-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Startup sync-mismatch toast ── */
+/* Fixed to bottom-right. Auto-dismisses after the user reads it. */
+.sync-mismatch-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  max-width: 360px;
+  background: var(--color-bg-sidebar, #1e1e2e);
+  border: 1px solid rgba(99, 102, 241, 0.4);  /* indigo border */
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  animation: toast-slide-up 0.25s ease;
+}
+
+.sync-mismatch-toast .toast-title {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.sync-mismatch-toast .toast-body {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.sync-mismatch-toast .toast-dismiss {
+  align-self: flex-end;
+  margin-top: 4px;
+  padding: 2px 10px;
+  background: transparent;
+  border: 1px solid var(--color-accent-border, rgba(99,102,241,0.3));
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-accent, #818cf8);
+  font-size: 11px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: background var(--transition-fast, 0.12s);
+}
+
+.sync-mismatch-toast .toast-dismiss:hover {
+  background: var(--color-accent-dim, rgba(99,102,241,0.12));
+}
+
+@keyframes toast-slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

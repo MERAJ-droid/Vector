@@ -1,26 +1,33 @@
 import express from 'express';
 import pool from '../config/database';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { PermissionRequest, requireViewer, requireEditor } from '../middleware/permissions';
 
 const router = express.Router();
 
 // Get file details and content
-router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
+router.get('/:id', authenticateToken, requireViewer, async (req: PermissionRequest, res) => {
   try {
-    const userId = req.user!.id;
     const fileId = parseInt(req.params.id);
 
     if (isNaN(fileId)) {
       return res.status(400).json({ error: 'Invalid file ID' });
     }
 
-    // Get file with project ownership verification
+    // Get file details.
+    // encode(digest(f.content, 'sha256'), 'hex') computes a SHA-256 hex hash of the stored
+    // content at query time using pgcrypto. The client uses this hash to verify that the
+    // Y.Doc content after YJS sync matches what PostgreSQL considers authoritative.
+    // pgcrypto is enabled via runMigrations.ts before any query that relies on it.
     const result = await pool.query(`
-      SELECT f.id, f.filename, f.content, f.language, f.is_collaborative, f.created_at, f.updated_at, p.project_name
+      SELECT f.id, f.project_id, f.filename, f.content, f.language, f.is_collaborative, f.created_at, f.updated_at, p.project_name,
+             u.username as owner_username,
+             encode(digest(COALESCE(f.content, ''), 'sha256'), 'hex') AS content_hash
       FROM files f
       JOIN projects p ON f.project_id = p.id
-      WHERE f.id = $1 AND p.owner_id = $2
-    `, [fileId, userId]);
+      JOIN users u ON p.owner_id = u.id
+      WHERE f.id = $1
+    `, [fileId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'File not found' });
@@ -37,13 +44,20 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
     const response: any = {
       file: {
         id: file.id,
+        project_id: file.project_id,
         filename: file.filename,
         content: file.content,
         language: file.language,
         isCollaborative: file.is_collaborative,
         createdAt: file.created_at,
         updatedAt: file.updated_at,
-        projectName: file.project_name
+        projectName: file.project_name,
+        ownerUsername: file.owner_username,
+        permission: req.filePermission,
+        // SHA-256 hex hash of files.content computed in PostgreSQL via pgcrypto.
+        // Used by the client after YJS sync to verify Y.Doc integrity.
+        // COALESCE(content, '') ensures a stable hash even for empty/null files.
+        contentHash: file.content_hash,
       }
     };
 
@@ -61,29 +75,14 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res) => {
 });
 
 // Update file content (Phase 2 - supports both regular updates and Yjs snapshots)
-router.put('/:id', authenticateToken, async (req: AuthRequest, res) => {
+router.put('/:id', authenticateToken, requireEditor, async (req: PermissionRequest, res) => {
   try {
-    const userId = req.user!.id;
     const fileId = parseInt(req.params.id);
     const { content, language, snapshot } = req.body;
 
     if (isNaN(fileId)) {
       return res.status(400).json({ error: 'Invalid file ID' });
     }
-
-    // Verify file ownership and get current state
-    const fileCheck = await pool.query(`
-      SELECT f.id, f.is_collaborative, f.project_id
-      FROM files f
-      JOIN projects p ON f.project_id = p.id
-      WHERE f.id = $1 AND p.owner_id = $2
-    `, [fileId, userId]);
-
-    if (fileCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-
-    const file = fileCheck.rows[0];
 
     // If snapshot data is provided, save it to yjs_snapshots table
     if (snapshot && Array.isArray(snapshot)) {
@@ -132,6 +131,45 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res) => {
 
     const updatedFile = result.rows[0];
 
+    // Auto-create version if content changed
+    if (content !== undefined) {
+      try {
+        // Get next version number
+        const versionResult = await pool.query(
+          'SELECT get_next_version_number($1) as version_number',
+          [fileId]
+        );
+        const versionNumber = versionResult.rows[0].version_number;
+
+        // Create version entry with conflict handling
+        // If another connection already created this version number, skip it
+        const insertResult = await pool.query(
+          `INSERT INTO file_versions (file_id, content, version_number, created_by, commit_message, file_size)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (file_id, version_number) DO NOTHING
+          RETURNING version_number`,
+          [
+            fileId, 
+            content, 
+            versionNumber, 
+            req.user!.id, 
+            'Auto-save checkpoint', 
+            Buffer.byteLength(content, 'utf8')
+          ]
+        );
+
+        // Only log if we actually created a version (not skipped due to conflict)
+        if (insertResult.rows.length > 0) {
+          console.log(`📸 Auto-created version ${versionNumber} for file ${fileId}`);
+        } else {
+          console.log(`⏭️  Skipped duplicate version ${versionNumber} for file ${fileId} (race condition)`);
+        }
+      } catch (versionError) {
+        console.error('Error creating version:', versionError);
+        // Don't fail the file update if version creation fails
+      }
+    }
+
     res.json({
       message: 'File updated successfully',
       file: {
@@ -150,9 +188,8 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res) => {
 });
 
 // Create Yjs snapshot (stub for Phase 2 preparation)
-router.post('/:id/snapshot', authenticateToken, async (req: AuthRequest, res) => {
+router.post('/:id/snapshot', authenticateToken, requireEditor, async (req: PermissionRequest, res) => {
   try {
-    const userId = req.user!.id;
     const fileId = parseInt(req.params.id);
     const { snapshotData } = req.body;
 
@@ -162,18 +199,6 @@ router.post('/:id/snapshot', authenticateToken, async (req: AuthRequest, res) =>
 
     if (!snapshotData) {
       return res.status(400).json({ error: 'Snapshot data is required' });
-    }
-
-    // Verify file ownership
-    const fileCheck = await pool.query(`
-      SELECT f.id
-      FROM files f
-      JOIN projects p ON f.project_id = p.id
-      WHERE f.id = $1 AND p.owner_id = $2
-    `, [fileId, userId]);
-
-    if (fileCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'File not found' });
     }
 
     // Get the next sequence number
@@ -207,26 +232,13 @@ router.post('/:id/snapshot', authenticateToken, async (req: AuthRequest, res) =>
 });
 
 // Get latest Yjs snapshot (stub for Phase 2 preparation)
-router.get('/:id/snapshot', authenticateToken, async (req: AuthRequest, res) => {
+router.get('/:id/snapshot', authenticateToken, requireViewer, async (req: PermissionRequest, res) => {
   try {
-    const userId = req.user!.id;
     const fileId = parseInt(req.params.id);
     const { latest } = req.query;
 
     if (isNaN(fileId)) {
       return res.status(400).json({ error: 'Invalid file ID' });
-    }
-
-    // Verify file ownership
-    const fileCheck = await pool.query(`
-      SELECT f.id
-      FROM files f
-      JOIN projects p ON f.project_id = p.id
-      WHERE f.id = $1 AND p.owner_id = $2
-    `, [fileId, userId]);
-
-    if (fileCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'File not found' });
     }
 
     let query = 'SELECT id, snapshot_data, sequence_number, created_at FROM yjs_snapshots WHERE file_id = $1';

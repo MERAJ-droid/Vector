@@ -1,0 +1,95 @@
+@import '../../design-tokens.css';
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--toolbar-height);
+  min-height: var(--toolbar-height);
+  background: var(--color-bg-panel);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 10px;
+  flex-shrink: 0;
+  font-family: var(--font-ui);
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.toolbar-breadcrumb {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Status badges */
+.toolbar-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* Connection state colours (blue-only) */
+.toolbar-badge .conn-icon.connected {
+  color: var(--color-status-connected);
+}
+
+.toolbar-badge .conn-icon.connecting {
+  color: var(--color-status-connecting);
+}
+
+.toolbar-badge .conn-icon.disconnected {
+  color: var(--color-status-disconnected);
+}
+
+.toolbar-badge.conn-badge.connected {
+  border-color: rgba(96, 165, 250, 0.3);
+}
+
+.toolbar-badge.conn-badge.disconnected {
+  opacity: 0.5;
+}
+
+.toolbar-badge .perm-icon {
+  color: var(--color-accent);
+}
+
+.toolbar-badge .saved-icon {
+  color: var(--color-accent);
+}
+
+/* Spin keyframe for Loader2 */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
