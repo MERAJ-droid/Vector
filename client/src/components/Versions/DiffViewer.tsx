@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { versionsAPI, VersionContent } from '../../services/versionsAPI';
-import { Editor } from '@monaco-editor/react';
+import { Editor, DiffEditor } from '@monaco-editor/react';
 import './DiffViewer.css';
 
 interface DiffViewerProps {
@@ -15,9 +15,30 @@ const DiffViewer: React.FC<DiffViewerProps> = ({ fileId, versionId, currentConte
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [viewMode, setViewMode] = useState<'diff' | 'version'>('diff');
+  
+  // Track DiffEditor instance to prevent unmount crash
+  const diffEditorRef = React.useRef<any>(null);
 
   // Ensure currentContent is never undefined
   const safeCurrentContent = currentContent || '';
+
+  const handleDiffMount = (editor: any) => {
+    diffEditorRef.current = editor;
+  };
+
+  useEffect(() => {
+    return () => {
+      // FIX: Monaco DiffEditor throws "TextModel got disposed before DiffEditorWidget model got reset"
+      // when unmounted. We manually reset the model to null before unmounting to prevent this.
+      if (diffEditorRef.current) {
+        try {
+          diffEditorRef.current.setModel(null);
+        } catch (e) {
+          console.error("Error resetting diff editor models:", e);
+        }
+      }
+    };
+  }, []);
 
   const loadVersion = useCallback(async () => {
     try {
@@ -103,43 +124,23 @@ const DiffViewer: React.FC<DiffViewerProps> = ({ fileId, versionId, currentConte
 
         <div className="diff-viewer-content">
           {viewMode === 'diff' ? (
-            <div className="side-by-side-diff">
-              <div className="diff-panel">
-                <div className="diff-panel-header">Version {version.versionNumber} (Old)</div>
-                <Editor
-                  key={`old-${versionId}`}
-                  height="calc(100vh - 240px)"
-                  language={version.language}
-                  value={version.content}
-                  theme="vs-dark"
-                  options={{
-                    readOnly: true,
-                    automaticLayout: true,
-                    minimap: { enabled: false },
-                    lineNumbers: 'on',
-                    wordWrap: 'on',
-                    scrollBeyondLastLine: false,
-                  }}
-                />
-              </div>
-              <div className="diff-panel">
-                <div className="diff-panel-header">Current Version (New)</div>
-                <Editor
-                  key={`current-${versionId}-${safeCurrentContent.length}`}
-                  height="calc(100vh - 240px)"
-                  language={version.language}
-                  value={safeCurrentContent}
-                  theme="vs-dark"
-                  options={{
-                    readOnly: true,
-                    automaticLayout: true,
-                    minimap: { enabled: false },
-                    lineNumbers: 'on',
-                    wordWrap: 'on',
-                    scrollBeyondLastLine: false,
-                  }}
-                />
-              </div>
+            <div className="side-by-side-diff" style={{ height: 'calc(100vh - 240px)' }}>
+              <DiffEditor
+                original={version.content}
+                modified={safeCurrentContent}
+                language={version.language}
+                theme="vs-dark"
+                onMount={handleDiffMount}
+                options={{
+                  readOnly: true,
+                  automaticLayout: true,
+                  minimap: { enabled: false },
+                  lineNumbers: 'on',
+                  wordWrap: 'on',
+                  scrollBeyondLastLine: false,
+                  renderSideBySide: true,
+                }}
+              />
             </div>
           ) : (
             <Editor

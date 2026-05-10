@@ -30,6 +30,7 @@ const CodeEditor: React.FC = () => {
   const [showCollaborators, setShowCollaborators] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [viewingVersionId, setViewingVersionId] = useState<number | null>(null);
+
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
@@ -149,7 +150,7 @@ const CodeEditor: React.FC = () => {
     }
   };
 
-  const setupYjs = async (editor: MonacoEditor.IStandaloneCodeEditor, file: File, isRestoring: boolean = false) => {
+  const setupYjs = async (editor: MonacoEditor.IStandaloneCodeEditor, file: File, skipInitialSync: boolean = false) => {
     if (!fileId) return;
 
     // GUARD: Prevent multiple simultaneous setups
@@ -159,7 +160,7 @@ const CodeEditor: React.FC = () => {
     }
     isSettingUpRef.current = true;
 
-    console.log(`🔧 Setting up Yjs collaboration... (isRestoring: ${isRestoring})`);
+    console.log('🔧 Setting up Yjs collaboration...');
 
     // CRITICAL: Clean up old connections first to prevent multiple connections!
     if (bindingRef.current) {
@@ -185,7 +186,7 @@ const CodeEditor: React.FC = () => {
       ydocRef.current = null;
     }
     
-    // Clear connection status
+    // Clear connection status check interval
     if (connectionCheckIntervalRef.current) {
       clearInterval(connectionCheckIntervalRef.current);
       connectionCheckIntervalRef.current = null;
@@ -195,19 +196,6 @@ const CodeEditor: React.FC = () => {
     const ydoc = new Y.Doc();
     ydocRef.current = ydoc;
     const ytext = ydoc.getText('monaco');
-
-    // Get Monaco content
-    const model = editor.getModel();
-    const monacoContent = model?.getValue() || '';
-    
-    // Only pre-populate if NOT restoring
-    // When restoring, we'll force-set after sync to override server state
-    if (monacoContent && !isRestoring) {
-      ytext.insert(0, monacoContent);
-      console.log(`📝 Pre-populated Y.Doc with ${monacoContent.length} chars from Monaco`);
-    } else if (isRestoring && monacoContent) {
-      console.log(`⚠️ Restoring: Will force-set ${monacoContent.length} chars after sync`);
-    }
 
     // Connect using WebsocketProvider
     const roomName = `file-${fileId}`;
@@ -295,25 +283,8 @@ const CodeEditor: React.FC = () => {
 
     provider.on('sync', (isSynced: boolean) => {
       console.log(`🔄 Sync status: ${isSynced}, ytext length: ${ytext.length}`);
-      
       if (isSynced) {
-        // If restoring, force-set the restored content to override server state
-        if (isRestoring && monacoContent) {
-          console.log(`🔄 RESTORE MODE: Forcing server to accept ${monacoContent.length} chars`);
-          ydoc.transact(() => {
-            // Clear whatever came from server
-            if (ytext.length > 0) {
-              ytext.delete(0, ytext.length);
-            }
-            // Insert restored content
-            ytext.insert(0, monacoContent);
-          });
-          console.log(`✅ Forced update: Y.Doc now has ${ytext.length} chars (should match restored content)`);
-        }
-        
-        // After sync (and possible restore), use Y.Doc as source of truth
-        const syncedContent = ytext.toString();
-        lastSavedContentRef.current = syncedContent;
+        lastSavedContentRef.current = ytext.toString();
         console.log(`✅ Document synced with ${ytext.length} chars`);
       }
     });
@@ -328,21 +299,19 @@ const CodeEditor: React.FC = () => {
       }, 2000);
     });
 
-    // Create Monaco binding with awareness (reuse model from above)
-    if (model) {
-      console.log('🔗 Creating MonacoBinding with awareness...');
+    // Create Monaco binding immediately.
+    // Monaco model already has the correct content set by the caller before setupYjs
+    // (on restore) or starts empty and gets filled by the YJS delta observer (normal load).
+    const model = editor.getModel();
+    if (model && !model.isDisposed()) {
+      console.log('🔗 Creating MonacoBinding...');
       const isReadOnly = file.permission ? !file.permission.canWrite : false;
-      const binding = new MonacoBinding(
-        ytext,
-        model,
-        provider.awareness,
-        isReadOnly
-      );
+      const binding = new MonacoBinding(ytext, model, provider.awareness, isReadOnly, skipInitialSync);
       bindingRef.current = binding;
-      console.log(`✅ MonacoBinding created (readOnly: ${isReadOnly})`);
+      console.log(`✅ MonacoBinding created (readOnly: ${isReadOnly}, skipInitialSync: ${skipInitialSync})`);
     }
 
-    isSettingUpRef.current = false; // Setup complete
+    isSettingUpRef.current = false;
     console.log('✅ Yjs setup complete');
   };
 
@@ -421,47 +390,16 @@ const CodeEditor: React.FC = () => {
 
   const handleRestoreVersion = async (versionId: number) => {
     if (!fileId) return;
-    
-    // Close version panel
+
     setShowVersionHistory(false);
     setViewingVersionId(null);
-    
-    // Destroy current Yjs connection
-    if (bindingRef.current) {
-      bindingRef.current.destroy();
-      bindingRef.current = null;
-    }
-    if (providerRef.current) {
-      providerRef.current.destroy();
-      providerRef.current = null;
-    }
-    if (ydocRef.current) {
-      ydocRef.current.destroy();
-      ydocRef.current = null;
-    }
-    
-    // Reload the file from server (with restored content)
-    try {
-      const response = await filesAPI.getFile(parseInt(fileId));
-      setFile(response.file);
-      const restoredContent = response.file.content || '';
-      lastSavedContentRef.current = restoredContent;
-      
-      // Update Monaco editor with restored content
-      if (editorRef.current) {
-        const model = editorRef.current.getModel();
-        if (model) {
-          model.setValue(restoredContent);
-          console.log(`📝 Set editor content to restored version (${restoredContent.length} chars)`);
-        }
-        
-        // Re-setup Yjs - it will FORCE the restored content to override server state
-        await setupYjs(editorRef.current, response.file, true);
-      }
-    } catch (error) {
-      console.error('Failed to reload file after restore:', error);
-      setError('Failed to reload file');
-    }
+
+    // The restore API call in VersionHistory triggers a server-side Yjs transaction.
+    // The server broadcasts a massive delta (delete all + insert restored content) 
+    // to all connected clients.
+    // The existing MonacoBinding will receive this delta and cleanly apply it 
+    // to the editor automatically. No need to manually fetch, remount, or reconnect!
+    console.log(`🔄 Version restore initiated. Waiting for Yjs sync...`);
   };
 
   const handleViewVersion = (versionId: number) => {

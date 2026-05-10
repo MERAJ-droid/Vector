@@ -131,44 +131,6 @@ router.put('/:id', authenticateToken, requireEditor, async (req: PermissionReque
 
     const updatedFile = result.rows[0];
 
-    // Auto-create version if content changed
-    if (content !== undefined) {
-      try {
-        // Get next version number
-        const versionResult = await pool.query(
-          'SELECT get_next_version_number($1) as version_number',
-          [fileId]
-        );
-        const versionNumber = versionResult.rows[0].version_number;
-
-        // Create version entry with conflict handling
-        // If another connection already created this version number, skip it
-        const insertResult = await pool.query(
-          `INSERT INTO file_versions (file_id, content, version_number, created_by, commit_message, file_size)
-          VALUES ($1, $2, $3, $4, $5, $6)
-          ON CONFLICT (file_id, version_number) DO NOTHING
-          RETURNING version_number`,
-          [
-            fileId, 
-            content, 
-            versionNumber, 
-            req.user!.id, 
-            'Auto-save checkpoint', 
-            Buffer.byteLength(content, 'utf8')
-          ]
-        );
-
-        // Only log if we actually created a version (not skipped due to conflict)
-        if (insertResult.rows.length > 0) {
-          console.log(`📸 Auto-created version ${versionNumber} for file ${fileId}`);
-        } else {
-          console.log(`⏭️  Skipped duplicate version ${versionNumber} for file ${fileId} (race condition)`);
-        }
-      } catch (versionError) {
-        console.error('Error creating version:', versionError);
-        // Don't fail the file update if version creation fails
-      }
-    }
 
     res.json({
       message: 'File updated successfully',

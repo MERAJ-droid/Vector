@@ -9,13 +9,19 @@ type ViewMode = 'hover' | 'click';
 interface CompactVersionHistoryProps {
   fileId: number;
   onClose: () => void;
+  currentVersion?: number;
+  onBeforeRestore?: () => void;
   onRestore?: (versionId: number) => void;
+  onViewVersion?: (versionId: number) => void;
 }
 
 const CompactVersionHistory: React.FC<CompactVersionHistoryProps> = ({
   fileId,
   onClose,
+  currentVersion,
+  onBeforeRestore,
   onRestore,
+  onViewVersion,
 }) => {
   const [versions, setVersions] = useState<Version[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,16 +62,20 @@ const CompactVersionHistory: React.FC<CompactVersionHistoryProps> = ({
   };
 
   const handleRestore = async (version: Version) => {
-    if (!window.confirm(`Restore to version ${version.versionNumber}?`)) {
+    if (!window.confirm('Are you sure you want to restore this version? Current unsaved changes will be lost.')) {
       return;
     }
 
     try {
+      if (onBeforeRestore) {
+        onBeforeRestore();
+      }
       await versionsAPI.restoreVersion(fileId, version.id);
       onRestore?.(version.id);
-      await loadVersions();
+      onClose();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to restore version');
+      setError(err.response?.data?.error || 'Failed to restore version');
+      console.error('Error restoring version:', err);
     }
   };
 

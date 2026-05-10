@@ -749,11 +749,15 @@ const VSCodeEditor: React.FC = () => {
 
   const handleVersionRestore = useCallback(async (_versionId: number) => {
     if (!activeFileId) return;
-    // Destroy current sync so the restored content gets seeded fresh on reconnect
-    tearDownActiveBinding();
-    fileSyncMap.current.get(activeFileId)?.destroy();
-    await loadAndOpenFile(activeFileId);
-  }, [activeFileId, tearDownActiveBinding, loadAndOpenFile]);
+    
+    // The VersionHistory panel triggers the REST API.
+    // The server updates the database and triggers `internal/restore`.
+    // The server broadcasts a massive delta (delete all + insert restored content).
+    // The existing MonacoBinding in this component receives the broadcast and 
+    // seamlessly applies the change. 
+    // No manual teardown, no reconnection, and no loading screen is needed!
+    console.log(`🔄 Version restore initiated. Waiting for Yjs sync...`);
+  }, [activeFileId]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Derived

@@ -47,9 +47,9 @@ const VersionHistory: React.FC<VersionHistoryProps> = ({
     try {
       await versionsAPI.restoreVersion(fileId, versionId);
       onRestore(versionId);
-      await loadVersions(); // Reload to show new version
     } catch (err: any) {
       alert(err.response?.data?.error || 'Failed to restore version');
+      console.error('Error restoring version:', err);
     }
   };
 

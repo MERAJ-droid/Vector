@@ -2,6 +2,8 @@ import express from 'express';
 import pool from '../config/database';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { requireViewer, PermissionRequest } from '../middleware/permissions';
+import redisConnection from '../config/redis';
+import axios from 'axios';
 
 const router = express.Router();
 
@@ -191,6 +193,24 @@ router.post('/:fileId/restore/:versionId', authenticateToken, async (req: AuthRe
       'UPDATE files SET content = $1, updated_at = NOW() WHERE id = $2',
       [content, fileId]
     );
+
+    // Delete both state and written_at keys from Redis
+    if (redisConnection.isConnected()) {
+      await redisConnection.getClient().del(
+        `yjs:file-${fileId}:state`,
+        `yjs:file-${fileId}:written_at`
+      );
+    }
+
+    // Call internal YJS server to broadcast restored content
+    try {
+      await axios.post(`http://localhost:1234/internal/restore/${fileId}`, {
+        content
+      });
+    } catch (err: any) {
+      console.error(`Internal restore broadcast failed for file ${fileId}:`, err.message);
+      // Non-fatal, clients without active connections are fine, active ones might need reload
+    }
 
     // Create a new version entry for the restore action
     const nextVersionResult = await pool.query(

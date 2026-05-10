@@ -26,6 +26,17 @@ dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
 const REDIS_STALENESS_THRESHOLD_MS: number =
   parseInt(process.env.REDIS_STALENESS_THRESHOLD_MS || '5000', 10);
 
+/** Duration of complete inactivity across all connections that defines session end. */
+const IDLE_TIMEOUT_MS: number =
+  parseInt(process.env.SESSION_IDLE_TIMEOUT_MS || String(5 * 60 * 1000), 10);
+
+/** Maximum session duration before a safety-valve version is cut, even if no idle. */
+const MARATHON_CHECKPOINT_MS: number =
+  parseInt(process.env.MARATHON_CHECKPOINT_MS || String(30 * 60 * 1000), 10);
+
+/** How often the idle check timer fires. Keep at 1 minute. */
+const IDLE_CHECK_INTERVAL_MS = 60_000;
+
 const PORT = 1234;
 
 const docs = new Map<string, WSSharedDoc>();
@@ -51,6 +62,19 @@ class WSSharedDoc extends Y.Doc {
   saveTimeout: NodeJS.Timeout | null = null;
   lastSavedContent: string = '';
   isInitializing: boolean = true; // Flag to prevent saves during initial load
+
+  /** Timestamp (ms) of the last message received from each connection. */
+  connLastActivity: Map<WebSocket, number> = new Map();
+
+  /** Content string at the time the last version was created. Used to skip
+   *  identical-content version saves. */
+  lastVersionContent: string = '';
+
+  /** Timestamp (ms) when the last version was created. Drives marathon checkpoint. */
+  lastVersionSavedAt: number = Date.now();
+
+  /** The periodic interval that runs the idle check. */
+  idleCheckInterval: NodeJS.Timeout | null = null;
 
   constructor(name: string) {
     super({ gc: true });
@@ -132,6 +156,100 @@ class WSSharedDoc extends Y.Doc {
       console.log(`✅ File ${fileId} saved successfully`);
     } catch (error: any) {
       console.error('❌ Error saving to database:', error.message);
+    }
+  }
+
+  startIdleCheck() {
+    if (this.idleCheckInterval) return; // already running
+    this.idleCheckInterval = setInterval(() => {
+      this.checkIdleTimeout().catch((err: any) => {
+        console.error(`❌ Idle check error for "${this.name}":`, err.message);
+      });
+    }, IDLE_CHECK_INTERVAL_MS);
+    console.log(`⏱️ Idle check started for room "${this.name}"`);
+  }
+
+  stopIdleCheck() {
+    if (this.idleCheckInterval) {
+      clearInterval(this.idleCheckInterval);
+      this.idleCheckInterval = null;
+      console.log(`⏹️ Idle check stopped for room "${this.name}"`);
+    }
+  }
+
+  async checkIdleTimeout() {
+    if (this.conns.size === 0) return;
+
+    const now = Date.now();
+
+    // Marathon safety valve
+    if (now - this.lastVersionSavedAt >= MARATHON_CHECKPOINT_MS) {
+      console.log(`🏃 Marathon checkpoint triggered for room "${this.name}"`);
+      await this.createSessionVersion('marathon');
+      return;
+    }
+
+    // Idle detection
+    const allIdle = Array.from(this.connLastActivity.values()).every(
+      (lastActivity) => now - lastActivity >= IDLE_TIMEOUT_MS
+    );
+
+    if (allIdle) {
+      console.log(`💤 All clients idle for ${IDLE_TIMEOUT_MS / 60000}min in room "${this.name}" — saving session version`);
+      await this.createSessionVersion('idle-timeout');
+    }
+  }
+
+  async createSessionVersion(reason: 'idle-timeout' | 'all-disconnected' | 'marathon') {
+    const fileId = this.name.replace('file-', '');
+    const content = this.getText('monaco').toString();
+
+    if (!content) {
+      console.log(`⏭️ Skipping session version for file ${fileId}: empty content`);
+      return;
+    }
+
+    const commitMessages = {
+      'idle-timeout':       `Session checkpoint — ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+      'all-disconnected':   `Session end — ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+      'marathon':           `Auto-checkpoint (30 min) — ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+    };
+
+    try {
+      // Query the database for the actual last version's content to prevent duplicates
+      // across server restarts or document memory evictions.
+      const lastVersionResult = await pool.query(
+        `SELECT content FROM file_versions WHERE file_id = $1 ORDER BY version_number DESC LIMIT 1`,
+        [fileId]
+      );
+      const dbLastContent = lastVersionResult.rows.length > 0 ? lastVersionResult.rows[0].content : null;
+
+      if (content === dbLastContent) {
+        console.log(`⏭️ Skipping session version for file ${fileId}: content unchanged since last DB version`);
+        return;
+      }
+
+      const versionResult = await pool.query(
+        `SELECT get_next_version_number($1) AS version_number`, [fileId]
+      );
+      const versionNumber = versionResult.rows[0].version_number;
+
+      await pool.query(
+        `INSERT INTO file_versions (file_id, content, version_number, created_by, commit_message, file_size)
+         VALUES (
+           $1, $2, $3,
+           (SELECT p.owner_id FROM files f JOIN projects p ON f.project_id = p.id WHERE f.id = $1),
+           $4,
+           $5
+         )`,
+        [fileId, content, versionNumber, commitMessages[reason], Buffer.byteLength(content, 'utf8')]
+      );
+
+      this.lastVersionSavedAt = Date.now();
+
+      console.log(`📸 Session version ${versionNumber} saved for file ${fileId} — reason: ${reason}`);
+    } catch (err: any) {
+      console.error(`❌ Failed to create session version for file ${fileId}:`, err.message);
     }
   }
 }
@@ -361,6 +479,8 @@ const send = (doc: WSSharedDoc, conn: WebSocket, m: Uint8Array) => {
 };
 
 const closeConn = async (doc: WSSharedDoc, conn: WebSocket) => {
+  doc.connLastActivity.delete(conn);
+
   if (doc.conns.has(conn)) {
     const controlledIds = doc.conns.get(conn);
     doc.conns.delete(conn);
@@ -370,6 +490,7 @@ const closeConn = async (doc: WSSharedDoc, conn: WebSocket) => {
     if (doc.conns.size === 0) {
       console.log(`💾 Last client disconnected from "${doc.name}", saving to Redis...`);
 
+      // Normal disconnect save behavior
       try {
         if (redisConnection.isConnected()) {
           const fileId = doc.name.replace('file-', '');
@@ -389,6 +510,9 @@ const closeConn = async (doc: WSSharedDoc, conn: WebSocket) => {
       } catch (error: any) {
         console.error(`❌ Error saving on disconnect:`, error.message);
       }
+
+      await doc.createSessionVersion('all-disconnected');
+      doc.stopIdleCheck();
 
       docs.delete(doc.name);
       console.log(`🗑️ Removed room from memory: "${doc.name}"`);
@@ -447,6 +571,45 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Internal restore endpoint: broadcasts restored content to active clients
+  if (req.method === 'POST' && url.startsWith('/internal/restore/')) {
+    const fileId = url.replace('/internal/restore/', '');
+    const docname = `file-${fileId}`;
+
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { content } = JSON.parse(body);
+
+        if (docs.has(docname)) {
+          const doc = docs.get(docname)!;
+          const ytext = doc.getText('monaco');
+
+          doc.transact(() => {
+            ytext.delete(0, ytext.length);
+            ytext.insert(0, content);
+          }, 'restore-operation');
+
+          doc.lastSavedContent = content;
+          doc.lastVersionContent = content; // reset version baseline too
+
+          console.log(`🔄 Restored file ${fileId} via internal endpoint (${content.length} chars) — ${doc.conns.size} clients synced`);
+        } else {
+          console.log(`ℹ️ No active YJS doc for file ${fileId} — restore applied to DB/Redis only`);
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err: any) {
+        console.error(`❌ Internal restore failed for file ${fileId}:`, err.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
   // Default response
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Yjs WebSocket Server\nEndpoints: /health, /stats\n');
@@ -468,6 +631,8 @@ wss.on('connection', async (ws: WebSocket, req: http.IncomingMessage) => {
   const doc = await getYDoc(roomName);
 
   doc.conns.set(ws, new Set());
+  doc.connLastActivity.set(ws, Date.now());
+  if (doc.conns.size === 1) doc.startIdleCheck(); // start on first connection only
 
   const ytext = doc.getText('monaco');
   console.log(`📊 Room "${roomName}" doc state: ${ytext.length} characters`);
@@ -513,6 +678,8 @@ wss.on('connection', async (ws: WebSocket, req: http.IncomingMessage) => {
 
   // Message handler
   ws.on('message', (message: Buffer) => {
+    doc.connLastActivity.set(ws, Date.now());
+
     try {
       const encoder = encoding.createEncoder();
       const decoder = decoding.createDecoder(new Uint8Array(message));
