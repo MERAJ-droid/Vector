@@ -12,7 +12,7 @@ import ActivityBar, { ActivityBarView } from './ActivityBar';
 import Sidebar from './Sidebar';
 import EditorTabs from './EditorTabs';
 import EditorToolbar from './EditorToolbar';
-import VersionBar from '../Versions/VersionBar';
+import TimelineScrubber from '../Versions/TimelineScrubber';
 import { sha256Hex } from '../../utils/hash';
 import './VSCodeEditor.css';
 
@@ -823,8 +823,9 @@ const VSCodeEditor: React.FC = () => {
         />
 
         {/* ── Version timeline ── */}
-        <VersionBar
+        <TimelineScrubber
           fileId={activeFileId || undefined}
+          language={activeFile?.file.language}
           onRestore={handleVersionRestore}
         />
 

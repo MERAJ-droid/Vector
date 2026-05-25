@@ -20,27 +20,52 @@ router.get('/:fileId', authenticateToken, requireViewer, async (req: PermissionR
     }
 
     // Get all versions for this file
-    const result = await pool.query(
-      `SELECT 
-        fv.id,
-        fv.version_number,
-        fv.commit_message,
-        fv.file_size,
-        fv.created_at,
-        u.username as created_by_username,
-        u.id as created_by_id
-      FROM file_versions fv
-      JOIN users u ON fv.created_by = u.id
-      WHERE fv.file_id = $1
-      ORDER BY fv.version_number DESC`,
-      [fileId]
-    );
+    // Try with description column (added by migration 003).
+    // Fall back to query without it if the column doesn't exist yet.
+    let result;
+    try {
+      result = await pool.query(
+        `SELECT
+          fv.id,
+          fv.version_number,
+          fv.commit_message,
+          fv.description,
+          fv.file_size,
+          fv.created_at,
+          u.username as created_by_username,
+          u.id as created_by_id
+        FROM file_versions fv
+        JOIN users u ON fv.created_by = u.id
+        WHERE fv.file_id = $1
+        ORDER BY fv.version_number DESC`,
+        [fileId]
+      );
+    } catch (err: any) {
+      if (err.code !== '42703') throw err; // 42703 = undefined_column
+      result = await pool.query(
+        `SELECT
+          fv.id,
+          fv.version_number,
+          fv.commit_message,
+          NULL AS description,
+          fv.file_size,
+          fv.created_at,
+          u.username as created_by_username,
+          u.id as created_by_id
+        FROM file_versions fv
+        JOIN users u ON fv.created_by = u.id
+        WHERE fv.file_id = $1
+        ORDER BY fv.version_number DESC`,
+        [fileId]
+      );
+    }
 
     res.json({
       versions: result.rows.map(row => ({
         id: row.id,
         versionNumber: row.version_number,
         commitMessage: row.commit_message,
+        description: row.description ?? null,
         fileSize: row.file_size,
         createdAt: row.created_at,
         createdBy: {

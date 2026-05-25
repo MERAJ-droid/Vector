@@ -11,6 +11,7 @@ export interface Version {
   id: number;
   versionNumber: number;
   commitMessage: string | null;
+  description: string | null;
   fileSize: number;
   createdAt: string;
   createdBy: {
