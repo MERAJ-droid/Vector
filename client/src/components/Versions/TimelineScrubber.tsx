@@ -118,46 +118,15 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ fileId, language, o
   const [previewLoading, setPreviewLoading] = useState(false);
   const [mode, setMode] = useState<ScrubMode>('navigate');
   const [diffVersion, setDiffVersion] = useState<Version | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [hoveredMarker, setHoveredMarker] = useState<{ version: Version; rect: DOMRect } | null>(null);
 
-  const timelineRef = useRef<HTMLDivElement>(null);
   const contentCacheRef = useRef<Map<number, string>>(new Map());
-  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ─── Time axis ──────────────────────────────────────────────────────────────
-
-  const timeMin = useMemo(() => {
-    if (versions.length === 0) return 0;
-    return new Date(versions[0].createdAt).getTime();
-  }, [versions]);
-
-  const timeMax = useMemo(() => {
-    if (versions.length === 0) return Date.now();
-    // Always extend to now so the last version isn't flush with the right edge
-    return Math.max(Date.now(), new Date(versions[versions.length - 1].createdAt).getTime() + 1000);
-  }, [versions]);
-
-  const timeSpan = timeMax - timeMin;
-
-  const positionOf = useCallback((v: Version): number => {
-    return calcPosition(v.createdAt, timeMin, timeSpan);
-  }, [timeMin, timeSpan]);
+  const activeRowRef = useRef<HTMLDivElement>(null);
 
   // ─── Session grouping ────────────────────────────────────────────────────────
 
   const sessions = useMemo((): Session[] => {
     return groupVersionsIntoSessions(versions).map(buildSession);
   }, [versions]);
-
-  // ─── Nearest version to a 0–1 position ──────────────────────────────────────
-
-  const findNearestVersion = useCallback((pct: number): Version | null => {
-    if (versions.length === 0) return null;
-    return versions.reduce((best, v) =>
-      Math.abs(positionOf(v) - pct) < Math.abs(positionOf(best) - pct) ? v : best
-    );
-  }, [versions, positionOf]);
 
   // ─── Content loading (cached) ────────────────────────────────────────────────
 
@@ -211,32 +180,10 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ fileId, language, o
     return () => { cancelled = true; };
   }, [fileId]);
 
-  // ─── Drag handling ───────────────────────────────────────────────────────────
-
+  // Scroll active row into view when it changes
   useEffect(() => {
-    if (!isDragging) return;
-    const onMove = (e: MouseEvent) => {
-      if (!timelineRef.current) return;
-      const rect = timelineRef.current.getBoundingClientRect();
-      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const nearest = findNearestVersion(pct);
-      if (!nearest) return;
-      setActiveVersion(prev => (prev?.id === nearest.id ? prev : nearest));
-      const cached = contentCacheRef.current.get(nearest.id);
-      if (cached !== undefined) {
-        setPreviewContent(cached);
-      } else {
-        loadVersionContent(nearest);
-      }
-    };
-    const onUp = () => setIsDragging(false);
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-  }, [isDragging, findNearestVersion, loadVersionContent]);
+    activeRowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [activeVersion?.id]);
 
   // ─── Actions ─────────────────────────────────────────────────────────────────
 
@@ -268,23 +215,6 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ fileId, language, o
     loadVersionContent(v);
   }, [mode, loadVersionContent]);
 
-  const handleTimelineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('.ts-marker, .ts-handle')) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const nearest = findNearestVersion(pct);
-    if (nearest) handleMarkerClick(nearest);
-  }, [findNearestVersion, handleMarkerClick]);
-
-  const handleMarkerMouseEnter = useCallback((v: Version, e: React.MouseEvent<HTMLDivElement>) => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    setHoveredMarker({ version: v, rect: (e.currentTarget as HTMLElement).getBoundingClientRect() });
-  }, []);
-
-  const handleMarkerMouseLeave = useCallback(() => {
-    hoverTimeoutRef.current = setTimeout(() => setHoveredMarker(null), 200);
-  }, []);
-
   // ─── Guard ────────────────────────────────────────────────────────────────────
 
   if (!fileId) return null;
@@ -293,27 +223,103 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ fileId, language, o
 
   const showPreview = activeVersion !== null && mode === 'navigate';
 
-  return (
-    <div className="ts-scrubber">
+  // Sessions newest-first for display
+  const displaySessions = [...sessions].reverse();
 
-      {/* ── Preview panel ── */}
+  const sessionLabel = (type: Session['type']) => {
+    if (type === 'restore') return 'restored';
+    if (type === 'manual') return 'checkpoint';
+    return 'session';
+  };
+
+  return (
+    <div className="ts-sidebar">
+
+      {/* ── Header ── */}
+      <div className="ts-sidebar-header">
+        <div className="ts-sidebar-title">
+          <GitCommit size={11} />
+          <span>HISTORY</span>
+          {versions.length > 0 && (
+            <span className="ts-count">{versions.length}</span>
+          )}
+        </div>
+        <div className="ts-controls">
+          {mode === 'diff' && <span className="ts-mode-hint">click to diff</span>}
+          <button
+            className={`ts-mode-btn${mode === 'navigate' ? ' active' : ''}`}
+            onClick={() => { setMode('navigate'); setDiffVersion(null); }}
+            title="Navigate — click to preview a version"
+          >
+            <MousePointer2 size={11} />
+          </button>
+          <button
+            className={`ts-mode-btn${mode === 'diff' ? ' active' : ''}`}
+            onClick={() => { setMode('diff'); setActiveVersion(null); setPreviewContent(null); }}
+            title="Compare — click a version to open diff view"
+          >
+            <SplitSquareHorizontal size={11} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Version list ── */}
+      <div className="ts-list">
+        {loading && <div className="ts-empty">Loading…</div>}
+        {!loading && versions.length === 0 && (
+          <div className="ts-empty">No versions yet</div>
+        )}
+
+        {displaySessions.map((session, si) => (
+          <div key={si} className={`ts-session-group ts-session-group--${session.type}`}>
+            <div className="ts-session-header">
+              <span className="ts-session-date">
+                {new Date(session.endVersion.createdAt).toLocaleDateString('en-US', {
+                  month: 'short', day: 'numeric',
+                })}
+              </span>
+              <span className={`ts-session-badge ts-session-badge--${session.type}`}>
+                {sessionLabel(session.type)}
+              </span>
+            </div>
+
+            {[...session.versions].reverse().map(v => {
+              const mType = getMarkerType(v);
+              const isActive = activeVersion?.id === v.id;
+              const label = v.description || (v.commitMessage ? stripTimestamp(v.commitMessage) : null);
+              return (
+                <div
+                  key={v.id}
+                  ref={isActive ? activeRowRef : undefined}
+                  className={`ts-row ts-row--${mType}${isActive ? ' ts-row--active' : ''}`}
+                  onClick={() => handleMarkerClick(v)}
+                >
+                  <div className="ts-row-marker" />
+                  <div className="ts-row-body">
+                    <div className="ts-row-top">
+                      <span className="ts-row-ver">v{v.versionNumber}</span>
+                      <span className="ts-row-rel">{formatRelative(v.createdAt)}</span>
+                      <span className="ts-row-author">{v.createdBy.username}</span>
+                    </div>
+                    {label && <div className="ts-row-msg">{label}</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* ── Preview panel (bottom of sidebar) ── */}
       {showPreview && (
-        <div className="ts-preview">
+        <div className="ts-sidebar-preview">
           <div className="ts-preview-header">
             <div className="ts-preview-meta">
               <span className="ts-preview-ver">v{activeVersion.versionNumber}</span>
               <span className="ts-preview-dot">·</span>
-              <span className="ts-preview-time">{formatTimestamp(activeVersion.createdAt)}</span>
-              <span className="ts-preview-dot">·</span>
-              <span className="ts-preview-author">{activeVersion.createdBy.username}</span>
-              {activeVersion.commitMessage && (
-                <>
-                  <span className="ts-preview-dot">·</span>
-                  <span className="ts-preview-msg">
-                    {activeVersion.description || stripTimestamp(activeVersion.commitMessage)}
-                  </span>
-                </>
-              )}
+              <span className="ts-preview-time">
+                {formatTimestamp(activeVersion.createdAt)}
+              </span>
             </div>
             <div className="ts-preview-actions">
               <button
@@ -322,7 +328,6 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ fileId, language, o
                 title="Compare with current"
               >
                 <SplitSquareHorizontal size={11} />
-                Compare
               </button>
               <button
                 className="ts-action-btn ts-action-restore"
@@ -347,7 +352,7 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ fileId, language, o
             )}
             {!previewLoading && previewContent === null && (
               <div className="ts-preview-placeholder ts-preview-error">
-                Failed to load version content
+                Failed to load content
               </div>
             )}
             {!previewLoading && previewContent !== null && (
@@ -364,126 +369,13 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ fileId, language, o
                   lineNumbers: 'on',
                   scrollBeyondLastLine: false,
                   wordWrap: 'on',
-                  fontSize: 12,
+                  fontSize: 11,
                   renderLineHighlight: 'none',
                 }}
               />
             )}
           </div>
         </div>
-      )}
-
-      {/* ── Rail ── */}
-      <div className="ts-rail">
-
-        {/* Affordance — always visible */}
-        <div className="ts-afford">
-          <GitCommit size={11} />
-          <span className="ts-afford-label">
-            {loading ? '…' : versions.length === 0 ? 'no versions' : `${versions.length}v`}
-          </span>
-        </div>
-
-        {/* Timeline — the proportional time axis */}
-        <div className="ts-timeline" ref={timelineRef} onClick={handleTimelineClick}>
-          {/* Background track line */}
-          <div className="ts-track" />
-
-          {/* Session blocks */}
-          {sessions.map((session, i) => {
-            const left = positionOf(session.startVersion) * 100;
-            const width = (positionOf(session.endVersion) - positionOf(session.startVersion)) * 100;
-            return (
-              <div
-                key={i}
-                className={`ts-block ts-block--${session.type}`}
-                style={{ left: `${left}%`, width: `calc(${width}% + 4px)` }}
-              />
-            );
-          })}
-
-          {/* Version markers */}
-          {versions.map(v => {
-            const mType = getMarkerType(v);
-            const isActive = activeVersion?.id === v.id;
-            return (
-              <div
-                key={v.id}
-                className={`ts-marker ts-marker--${mType}${isActive ? ' ts-marker--active' : ''}`}
-                style={{ left: `${positionOf(v) * 100}%` }}
-                onClick={e => { e.stopPropagation(); handleMarkerClick(v); }}
-                onMouseEnter={e => handleMarkerMouseEnter(v, e)}
-                onMouseLeave={handleMarkerMouseLeave}
-              />
-            );
-          })}
-
-          {/* Scrub handle */}
-          {activeVersion && mode === 'navigate' && (
-            <div
-              className="ts-handle"
-              style={{ left: `${positionOf(activeVersion) * 100}%` }}
-              onMouseDown={e => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsDragging(true);
-              }}
-            />
-          )}
-        </div>
-
-        {/* Mode controls */}
-        <div className="ts-controls">
-          {mode === 'diff' && (
-            <span className="ts-mode-hint">click marker to diff</span>
-          )}
-          <button
-            className={`ts-mode-btn${mode === 'navigate' ? ' active' : ''}`}
-            onClick={e => {
-              e.stopPropagation();
-              setMode('navigate');
-              setDiffVersion(null);
-            }}
-            title="Navigate — click or drag to preview a version"
-          >
-            <MousePointer2 size={11} />
-          </button>
-          <button
-            className={`ts-mode-btn${mode === 'diff' ? ' active' : ''}`}
-            onClick={e => {
-              e.stopPropagation();
-              setMode('diff');
-              setActiveVersion(null);
-              setPreviewContent(null);
-            }}
-            title="Compare — click a marker to open diff view"
-          >
-            <SplitSquareHorizontal size={11} />
-          </button>
-        </div>
-      </div>
-
-      {/* ── Marker tooltip ── */}
-      {hoveredMarker && (
-        <MarkerTooltip
-          version={hoveredMarker.version}
-          anchorRect={hoveredMarker.rect}
-          onMouseEnter={() => {
-            if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-          }}
-          onMouseLeave={() => setHoveredMarker(null)}
-          onRestore={() => {
-            setHoveredMarker(null);
-            handleRestore(hoveredMarker.version);
-          }}
-          onCompare={() => {
-            setHoveredMarker(null);
-            setMode('diff');
-            setActiveVersion(null);
-            setPreviewContent(null);
-            setDiffVersion(hoveredMarker.version);
-          }}
-        />
       )}
 
       {/* ── DiffViewer ── */}
@@ -495,56 +387,6 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ fileId, language, o
           onClose={() => setDiffVersion(null)}
         />
       )}
-    </div>
-  );
-};
-
-// ─── Marker Tooltip ───────────────────────────────────────────────────────────
-
-interface MarkerTooltipProps {
-  version: Version;
-  anchorRect: DOMRect;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
-  onRestore: () => void;
-  onCompare: () => void;
-}
-
-const MarkerTooltip: React.FC<MarkerTooltipProps> = ({
-  version,
-  anchorRect,
-  onMouseEnter,
-  onMouseLeave,
-  onRestore,
-  onCompare,
-}) => {
-  const left = Math.max(4, Math.min(window.innerWidth - 224, anchorRect.left - 80));
-  const top = anchorRect.bottom + 6;
-  const label = version.description || (version.commitMessage ? stripTimestamp(version.commitMessage) : null);
-
-  return (
-    <div
-      className="ts-tooltip"
-      style={{ position: 'fixed', left, top, zIndex: 9999 }}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      <div className="ts-tooltip-header">
-        <span className="ts-tooltip-ver">v{version.versionNumber}</span>
-        <span className="ts-tooltip-time">{formatTimestamp(version.createdAt)}</span>
-      </div>
-      <div className="ts-tooltip-author">
-        {version.createdBy.username} · {formatRelative(version.createdAt)}
-      </div>
-      {label && <div className="ts-tooltip-msg">{label}</div>}
-      <div className="ts-tooltip-actions">
-        <button className="ts-tooltip-btn" onClick={onRestore}>
-          <RotateCcw size={10} /> Restore
-        </button>
-        <button className="ts-tooltip-btn" onClick={onCompare}>
-          <SplitSquareHorizontal size={10} /> Compare
-        </button>
-      </div>
     </div>
   );
 };

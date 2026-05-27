@@ -22,7 +22,25 @@
   background: var(--color-bg-void);
 }
 
-/* ── Editor content area (below tabs+toolbar) ── */
+/* ── Row below tabs: editor area + version sidebar ── */
+.editor-body {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Left column: toolbar + banners + Monaco ── */
+.editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ── Editor content area (below toolbar) ── */
 .editor-container {
   flex: 1;
   overflow: hidden;

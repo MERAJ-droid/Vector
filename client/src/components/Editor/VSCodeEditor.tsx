@@ -822,100 +822,92 @@ const VSCodeEditor: React.FC = () => {
           onTabClose={closeFile}
         />
 
-        {/* ── Version timeline ── */}
-        <TimelineScrubber
-          fileId={activeFileId || undefined}
-          language={activeFile?.file.language}
-          onRestore={handleVersionRestore}
-        />
+        {/* ── Editor area + version sidebar ── */}
+        <div className="editor-body">
+          <div className="editor-area">
+            {activeFile && (
+              <>
+                {/* ── Status toolbar ── */}
+                <EditorToolbar
+                  filename={activeFile.file.filename}
+                  connectionStatus={connectionStatus}
+                  isSaving={activeFile.isSaving}
+                  lastSaved={activeFile.lastSaved}
+                  permissionLevel={activeFile.file.permission?.level}
+                  fileId={activeFile.file.id}
+                  onVersionRestore={handleVersionRestore}
+                />
 
-        {activeFile && (
-          <>
-            {/* ── Status toolbar ── */}
-            <EditorToolbar
-              filename={activeFile.file.filename}
-              connectionStatus={connectionStatus}
-              isSaving={activeFile.isSaving}
-              lastSaved={activeFile.lastSaved}
-              permissionLevel={activeFile.file.permission?.level}
-              fileId={activeFile.file.id}
-              onVersionRestore={handleVersionRestore}
-            />
+                {/* ── Tier-1 slow-connection warning (3000ms, phase stays 'syncing') ── */}
+                {showSlowWarning && syncPhase === 'syncing' && (
+                  <div className="sync-warning-banner">
+                    <span className="banner-icon">⚠</span>
+                    Connection is taking longer than expected — still trying&hellip;
+                  </div>
+                )}
 
-            {/* ── Tier-1 slow-connection warning (3000ms, phase stays 'syncing') ── */}
-            {showSlowWarning && syncPhase === 'syncing' && (
-              <div className="sync-warning-banner">
-                <span className="banner-icon">⚠</span>
-                Connection is taking longer than expected — still trying&hellip;
-              </div>
-            )}
+                {/* ── Tier-2 fallback banner (8000ms, read-only mode) ── */}
+                {syncPhase === 'fallback' && (
+                  <div className="sync-fallback-banner">
+                    <span className="banner-icon">⚡</span>
+                    Live collaboration unavailable — viewing last known content in read-only mode.
+                    Reconnecting automatically&hellip;
+                  </div>
+                )}
 
-            {/* ── Tier-2 fallback banner (8000ms, read-only mode) ── */}
-            {syncPhase === 'fallback' && (
-              <div className="sync-fallback-banner">
-                <span className="banner-icon">⚡</span>
-                Live collaboration unavailable — viewing last known content in read-only mode.
-                Reconnecting automatically&hellip;
-              </div>
-            )}
-
-            {/* ── Monaco Editor ──────────────────────────────────────────────
-              Single stable editor instance. Binding swapped via ref lifecycle.
-              readOnly driven by syncPhase in fallback; otherwise by permission.
-              The sync-overlay sits on top of Monaco during connecting|syncing
-              phases, preventing the user from seeing a blank editor during the
-              initial sync window or during the fallback→syncing reconnection
-              (when the model is cleared before onSync repopulates it).
-            ─────────────────────────────────────────────────────────────── */}
-            <div className="editor-container">
-              {(syncPhase === 'connecting' || syncPhase === 'syncing') && (
-                <div className="sync-overlay" aria-label="Connecting to collaboration server">
-                  <div className="sync-overlay-spinner" />
-                  <span>
-                    {syncPhase === 'connecting' ? 'Connecting…' : 'Syncing document…'}
-                  </span>
+                <div className="editor-container">
+                  {(syncPhase === 'connecting' || syncPhase === 'syncing') && (
+                    <div className="sync-overlay" aria-label="Connecting to collaboration server">
+                      <div className="sync-overlay-spinner" />
+                      <span>
+                        {syncPhase === 'connecting' ? 'Connecting…' : 'Syncing document…'}
+                      </span>
+                    </div>
+                  )}
+                  <Editor
+                    key={activeFileId}
+                    height="100%"
+                    language={getLanguageFromFilename(activeFile.file.filename) || activeFile.file.language}
+                    theme="vs-dark"
+                    defaultValue=""
+                    options={{
+                      minimap: { enabled: true },
+                      fontSize: 14,
+                      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
+                      fontLigatures: true,
+                      wordWrap: 'on',
+                      automaticLayout: true,
+                      lineHeight: 22,
+                      cursorBlinking: 'smooth',
+                      cursorSmoothCaretAnimation: 'on',
+                      smoothScrolling: true,
+                      renderLineHighlight: 'gutter',
+                      scrollBeyondLastLine: false,
+                      readOnly: syncPhase === 'fallback'
+                        ? true
+                        : (activeFile.file.permission ? !activeFile.file.permission.canWrite : false),
+                    }}
+                    onMount={handleEditorMount}
+                  />
                 </div>
-              )}
-              {/* Fix B: key={activeFileId} forces Monaco to remount on every tab
-                  switch. This guarantees: (1) handleEditorMount fires for each
-                  file, (2) the previous file's ytext cannot leak into the new
-                  model, (3) createBinding in the effect and in handleEditorMount
-                  are both safe to call (tearDownActiveBinding is idempotent). */}
-              <Editor
-                key={activeFileId}
-                height="100%"
-                language={getLanguageFromFilename(activeFile.file.filename) || activeFile.file.language}
-                theme="vs-dark"
-                defaultValue=""
-                options={{
-                  minimap: { enabled: true },
-                  fontSize: 14,
-                  fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
-                  fontLigatures: true,
-                  wordWrap: 'on',
-                  automaticLayout: true,
-                  lineHeight: 22,
-                  cursorBlinking: 'smooth',
-                  cursorSmoothCaretAnimation: 'on',
-                  smoothScrolling: true,
-                  renderLineHighlight: 'gutter',
-                  scrollBeyondLastLine: false,
-                  readOnly: syncPhase === 'fallback'
-                    ? true
-                    : (activeFile.file.permission ? !activeFile.file.permission.canWrite : false),
-                }}
-                onMount={handleEditorMount}
-              />
-            </div>
-          </>
-        )}
+              </>
+            )}
 
-        {!activeFile && (
-          <div className="no-file-open">
-            <h2>No File Open</h2>
-            <p>Select a file from the explorer to start editing</p>
+            {!activeFile && (
+              <div className="no-file-open">
+                <h2>No File Open</h2>
+                <p>Select a file from the explorer to start editing</p>
+              </div>
+            )}
           </div>
-        )}
+
+          {/* ── Version history sidebar ── */}
+          <TimelineScrubber
+            fileId={activeFileId || undefined}
+            language={activeFile?.file.language}
+            onRestore={handleVersionRestore}
+          />
+        </div>
       </div>
     </div>
   );

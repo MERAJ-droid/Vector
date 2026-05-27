@@ -1,341 +1,60 @@
 @import '../../design-tokens.css';
 
-/* ── Outer wrapper ─────────────────────────────────────────────────────────── */
+/* ── Sidebar shell ─────────────────────────────────────────────────────────── */
 
-.ts-scrubber {
-  position: relative;
-  width: 100%;
+.ts-sidebar {
+  width: 220px;
   flex-shrink: 0;
-  /* z-index so the preview panel floats above Monaco below it */
-  z-index: 10;
-}
-
-/* ── Preview panel ─────────────────────────────────────────────────────────── */
-
-.ts-preview {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  z-index: 200;
   display: flex;
   flex-direction: column;
   background: var(--color-bg-panel);
-  border-bottom: 1px solid var(--color-border-strong);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  border-left: 1px solid var(--color-border);
+  overflow: hidden;
 }
 
-.ts-preview-header {
+/* ── Header ────────────────────────────────────────────────────────────────── */
+
+.ts-sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
-  height: 32px;
+  padding: 0 6px 0 8px;
+  height: 28px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
-  gap: 8px;
+  gap: 4px;
 }
 
-.ts-preview-meta {
+.ts-sidebar-title {
   display: flex;
   align-items: center;
   gap: 5px;
-  overflow: hidden;
-  min-width: 0;
-}
-
-.ts-preview-dot {
   color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  flex-shrink: 0;
-}
-
-.ts-preview-ver {
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  font-family: var(--font-mono);
-  color: var(--color-text-accent);
-  flex-shrink: 0;
-}
-
-.ts-preview-time {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  flex-shrink: 0;
-}
-
-.ts-preview-author {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  flex-shrink: 0;
-}
-
-.ts-preview-msg {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  font-style: italic;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.ts-preview-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.ts-action-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 20px;
-  padding: 0 8px;
   font-size: var(--font-size-xs);
   font-family: var(--font-ui);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  background: none;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-  transition:
-    color var(--transition-fast),
-    border-color var(--transition-fast),
-    background var(--transition-fast);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  min-width: 0;
 }
 
-.ts-action-btn:hover {
-  color: var(--color-text-primary);
-  border-color: var(--color-accent-border);
-  background: var(--color-accent-dim);
-}
-
-.ts-action-restore:hover {
-  color: #f97316;
-  border-color: rgba(249, 115, 22, 0.4);
-  background: rgba(249, 115, 22, 0.08);
-}
-
-.ts-action-close {
-  border-color: transparent;
-  padding: 0 5px;
-}
-
-.ts-action-close:hover {
-  border-color: var(--color-border-strong);
+.ts-count {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
   background: var(--color-bg-hover);
-  color: var(--color-text-primary);
+  border-radius: 8px;
+  padding: 0 5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-.ts-preview-editor {
-  height: 30vh;
-}
-
-.ts-preview-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  font-family: var(--font-ui);
-}
-
-.ts-preview-error {
-  color: #f87171;
-}
-
-/* ── Rail ──────────────────────────────────────────────────────────────────── */
-
-.ts-rail {
-  display: flex;
-  align-items: center;
-  height: var(--version-bar-height);
-  background: var(--color-bg-panel);
-  border-bottom: 1px solid var(--color-border);
-  user-select: none;
-  position: relative;
-}
-
-/* ── Affordance (left anchor) ──────────────────────────────────────────────── */
-
-.ts-afford {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  padding: 0 6px 0 8px;
-  color: var(--color-text-muted);
-}
-
-.ts-afford-label {
-  font-size: var(--font-size-xs);
-  font-family: var(--font-ui);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
-/* ── Timeline area (the proportional time axis) ────────────────────────────── */
-
-.ts-timeline {
-  position: relative;
-  flex: 1;
-  height: 100%;
-  cursor: crosshair;
-  overflow: visible;
-}
-
-/* Background track line */
-.ts-track {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 2px;
-  transform: translateY(-50%);
-  background: var(--color-border-strong);
-  border-radius: 1px;
-  pointer-events: none;
-}
-
-/* ── Session blocks ────────────────────────────────────────────────────────── */
-
-.ts-block {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  height: 10px;
-  border-radius: 2px;
-  pointer-events: none;
-  min-width: 4px;
-}
-
-/* Normal editing session — blue */
-.ts-block--active {
-  background: rgba(59, 130, 246, 0.18);
-  border: 1px solid rgba(59, 130, 246, 0.35);
-}
-
-/* Contains a restore event — amber */
-.ts-block--restore {
-  background: rgba(251, 191, 36, 0.15);
-  border: 1px solid rgba(251, 191, 36, 0.35);
-}
-
-/* User-created checkpoint — violet */
-.ts-block--manual {
-  background: rgba(139, 92, 246, 0.15);
-  border: 1px solid rgba(139, 92, 246, 0.35);
-}
-
-/* ── Version markers ───────────────────────────────────────────────────────── */
-
-.ts-marker {
-  position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  cursor: pointer;
-  z-index: 2;
-  transition: opacity var(--transition-fast);
-}
-
-.ts-marker:hover {
-  opacity: 0.75;
-}
-
-/* Auto-save / initial: thin gray tick */
-.ts-marker--auto {
-  width: 2px;
-  height: 14px;
-  border-radius: 1px;
-  background: var(--color-border-strong);
-}
-
-/* Session boundary: taller, brighter tick */
-.ts-marker--session-end {
-  width: 2px;
-  height: 20px;
-  border-radius: 1px;
-  background: var(--color-text-muted);
-}
-
-/* Restore event: amber circle */
-.ts-marker--restore {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: rgba(251, 191, 36, 0.85);
-  border: 1px solid rgba(251, 191, 36, 0.5);
-}
-
-/* Manual checkpoint: accent diamond */
-.ts-marker--manual {
-  width: 8px;
-  height: 8px;
-  background: var(--color-accent);
-  transform: translate(-50%, -50%) rotate(45deg);
-  border-radius: 1px;
-}
-
-/* Active (selected) overrides */
-.ts-marker--active.ts-marker--auto,
-.ts-marker--active.ts-marker--session-end {
-  background: var(--color-accent);
-}
-
-.ts-marker--active.ts-marker--restore {
-  background: var(--color-accent);
-  border-color: var(--color-accent-border);
-}
-
-.ts-marker--active.ts-marker--manual {
-  background: #93c5fd;
-}
-
-/* ── Scrub handle ──────────────────────────────────────────────────────────── */
-
-.ts-handle {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--color-accent);
-  transform: translateX(-50%);
-  cursor: ew-resize;
-  z-index: 3;
-}
-
-/* Top and bottom caps on the handle */
-.ts-handle::before,
-.ts-handle::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-accent);
-}
-
-.ts-handle::before {
-  top: -3px;
-}
-
-.ts-handle::after {
-  bottom: -3px;
-}
-
-/* ── Mode controls (right anchor) ─────────────────────────────────────────── */
+/* ── Mode controls ─────────────────────────────────────────────────────────── */
 
 .ts-controls {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 6px;
   flex-shrink: 0;
 }
 
@@ -343,7 +62,7 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   font-family: var(--font-ui);
-  padding-right: 4px;
+  padding-right: 3px;
   white-space: nowrap;
 }
 
@@ -375,85 +94,319 @@
   border-color: var(--color-accent-border);
 }
 
-/* ── Marker tooltip ────────────────────────────────────────────────────────── */
+/* ── Scrollable version list ───────────────────────────────────────────────── */
 
-.ts-tooltip {
-  min-width: 180px;
-  max-width: 260px;
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  padding: 8px 10px;
-  font-family: var(--font-ui);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.ts-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
 }
 
-.ts-tooltip-header {
+.ts-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ts-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ts-list::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 2px;
+}
+
+.ts-empty {
+  padding: 20px 12px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-family: var(--font-ui);
+  text-align: center;
+}
+
+/* ── Session groups ────────────────────────────────────────────────────────── */
+
+.ts-session-group {
+  border-left: 2px solid transparent;
+}
+
+.ts-session-group + .ts-session-group {
+  border-top: 1px solid var(--color-border);
+}
+
+.ts-session-group--active  { border-left-color: rgba(59, 130, 246, 0.45); }
+.ts-session-group--restore { border-left-color: rgba(251, 191, 36, 0.45); }
+.ts-session-group--manual  { border-left-color: rgba(139, 92, 246, 0.45); }
+
+.ts-session-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 5px;
+  padding: 5px 8px 3px 10px;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-family: var(--font-ui);
 }
 
-.ts-tooltip-ver {
-  font-size: var(--font-size-sm);
+.ts-session-date {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.ts-session-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.ts-session-badge--active  {
+  color: rgba(59, 130, 246, 0.9);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.ts-session-badge--restore {
+  color: rgba(251, 191, 36, 0.9);
+  background: rgba(251, 191, 36, 0.1);
+}
+
+.ts-session-badge--manual  {
+  color: rgba(139, 92, 246, 0.9);
+  background: rgba(139, 92, 246, 0.1);
+}
+
+/* ── Version rows ──────────────────────────────────────────────────────────── */
+
+.ts-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 5px 8px 5px 10px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  border-left: 2px solid transparent;
+  margin-left: -2px;
+}
+
+.ts-row:hover {
+  background: var(--color-bg-hover);
+}
+
+.ts-row--active {
+  background: var(--color-accent-dim);
+  border-left-color: var(--color-accent);
+}
+
+/* ── Marker dots ───────────────────────────────────────────────────────────── */
+
+.ts-row-marker {
+  flex-shrink: 0;
+  margin-top: 5px;
+  width: 6px;
+  height: 6px;
+}
+
+.ts-row--auto .ts-row-marker {
+  border-radius: 50%;
+  background: var(--color-border-strong);
+}
+
+.ts-row--session-end .ts-row-marker {
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+.ts-row--restore .ts-row-marker {
+  border-radius: 50%;
+  background: rgba(251, 191, 36, 0.85);
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+}
+
+.ts-row--manual .ts-row-marker {
+  background: var(--color-accent);
+  transform: rotate(45deg);
+  border-radius: 1px;
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+}
+
+.ts-row--active .ts-row-marker {
+  background: var(--color-accent) !important;
+  border-color: var(--color-accent-border) !important;
+}
+
+/* ── Row text content ──────────────────────────────────────────────────────── */
+
+.ts-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ts-row-top {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.ts-row-ver {
+  font-size: var(--font-size-xs);
   font-weight: 700;
   font-family: var(--font-mono);
   color: var(--color-text-accent);
+  flex-shrink: 0;
 }
 
-.ts-tooltip-time {
+.ts-row-rel {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+  flex-shrink: 0;
 }
 
-.ts-tooltip-author {
+.ts-row-author {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-}
-
-.ts-tooltip-msg {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  font-style: italic;
-  border-left: 2px solid var(--color-accent-border);
-  padding-left: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ts-tooltip-actions {
-  display: flex;
-  gap: 4px;
-  margin-top: 2px;
-  padding-top: 6px;
-  border-top: 1px solid var(--color-border);
+.ts-row-msg {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.ts-tooltip-btn {
+/* ── Preview panel (bottom of sidebar) ────────────────────────────────────── */
+
+.ts-sidebar-preview {
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border-strong);
+  display: flex;
+  flex-direction: column;
+  height: 40vh;
+  max-height: 55%;
+  min-height: 120px;
+}
+
+.ts-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px 0 8px;
+  height: 30px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.ts-preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.ts-preview-dot {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  flex-shrink: 0;
+}
+
+.ts-preview-ver {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--color-text-accent);
+  flex-shrink: 0;
+}
+
+.ts-preview-time {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ts-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ts-action-btn {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 2px 7px;
+  height: 18px;
+  padding: 0 6px;
   font-size: var(--font-size-xs);
   font-family: var(--font-ui);
-  background: none;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  background: none;
   color: var(--color-text-secondary);
+  white-space: nowrap;
   transition:
     color var(--transition-fast),
     border-color var(--transition-fast),
     background var(--transition-fast);
 }
 
-.ts-tooltip-btn:hover {
+.ts-action-btn:hover {
   color: var(--color-text-primary);
   border-color: var(--color-accent-border);
   background: var(--color-accent-dim);
+}
+
+.ts-action-restore:hover {
+  color: #f97316;
+  border-color: rgba(249, 115, 22, 0.4);
+  background: rgba(249, 115, 22, 0.08);
+}
+
+.ts-action-close {
+  border-color: transparent;
+  padding: 0 4px;
+}
+
+.ts-action-close:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.ts-preview-editor {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.ts-preview-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-family: var(--font-ui);
+}
+
+.ts-preview-error {
+  color: #f87171;
 }
