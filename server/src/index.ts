@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
@@ -11,6 +11,7 @@ import projectRoutes from './routes/projects';
 import fileRoutes from './routes/files';
 import sharingRoutes from './routes/sharing';
 import versionRoutes from './routes/versions';
+import aiRoutes from './routes/ai';
 
 dotenv.config();
 
@@ -32,10 +33,10 @@ app.use(express.json());
 // Test database connection on startup
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {
-    console.error('❌ Database connection failed:', err);
+    console.error('âŒ Database connection failed:', err);
     process.exit(1);
   } else {
-    console.log('✅ Database connected successfully');
+    console.log('âœ… Database connected successfully');
   }
 });
 
@@ -45,6 +46,7 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/sharing', sharingRoutes);
 app.use('/api/versions', versionRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Basic health check
 app.get('/api/health', (req, res) => {
@@ -53,18 +55,18 @@ app.get('/api/health', (req, res) => {
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
-  console.log('🔌 User connected:', socket.id);
+  console.log('ðŸ”Œ User connected:', socket.id);
 
   // Join file room for real-time collaboration
   socket.on('join-file', (fileId: string) => {
     socket.join(`file-${fileId}`);
-    console.log(`📄 User ${socket.id} joined file room: ${fileId}`);
+    console.log(`ðŸ“„ User ${socket.id} joined file room: ${fileId}`);
   });
 
   // Leave file room
   socket.on('leave-file', (fileId: string) => {
     socket.leave(`file-${fileId}`);
-    console.log(`📄 User ${socket.id} left file room: ${fileId}`);
+    console.log(`ðŸ“„ User ${socket.id} left file room: ${fileId}`);
   });
 
   // Handle text changes (naive implementation for Phase 1)
@@ -74,11 +76,11 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('🔌 User disconnected:', socket.id);
+    console.log('ðŸ”Œ User disconnected:', socket.id);
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`ðŸš€ Server running on port ${PORT}`);
+  console.log(`ðŸ“Š Environment: ${process.env.NODE_ENV || 'development'}`);
 });

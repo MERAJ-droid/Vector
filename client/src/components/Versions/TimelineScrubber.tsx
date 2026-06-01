@@ -12,6 +12,8 @@ interface TimelineScrubberProps {
   fileId?: number;
   language?: string;
   onRestore?: (versionId: number) => void;
+  seekVersionNumber?: number;
+  onSeekComplete?: () => void;
 }
 
 export interface Session {
@@ -109,7 +111,9 @@ export function groupVersionsIntoSessions(
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ fileId, language, onRestore }) => {
+const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
+  fileId, language, onRestore, seekVersionNumber, onSeekComplete,
+}) => {
   const [versions, setVersions] = useState<Version[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentContent, setCurrentContent] = useState('');
@@ -184,6 +188,20 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({ fileId, language, o
   useEffect(() => {
     activeRowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [activeVersion?.id]);
+
+  // Seek to a version number when requested by ProvenancePanel
+  useEffect(() => {
+    if (!seekVersionNumber || versions.length === 0) return;
+    const target = versions.find(v => v.versionNumber === seekVersionNumber);
+    if (target) {
+      setMode('navigate');
+      setActiveVersion(target);
+      loadVersionContent(target);
+    }
+    onSeekComplete?.();
+  // loadVersionContent is stable (useCallback); versions changes are intentional triggers
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seekVersionNumber]);
 
   // ─── Actions ─────────────────────────────────────────────────────────────────
 

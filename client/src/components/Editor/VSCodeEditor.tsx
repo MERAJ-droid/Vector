@@ -13,6 +13,7 @@ import Sidebar from './Sidebar';
 import EditorTabs from './EditorTabs';
 import EditorToolbar from './EditorToolbar';
 import TimelineScrubber from '../Versions/TimelineScrubber';
+import ProvenancePanel from './ProvenancePanel';
 import { sha256Hex } from '../../utils/hash';
 import './VSCodeEditor.css';
 
@@ -115,6 +116,10 @@ const VSCodeEditor: React.FC = () => {
     useState<'connected' | 'connecting' | 'disconnected'>('connecting');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // ── Provenance panel state ───────────────────────────────────────────────
+  const [provenanceLine, setProvenanceLine] = useState<string | null>(null);
+  const [seekVersionNumber, setSeekVersionNumber] = useState<number | null>(null);
 
   // ── Refs: own Yjs & Monaco lifetime ─────────────────────────────────────
   /** Mounted Monaco editor instance */
@@ -592,6 +597,21 @@ const VSCodeEditor: React.FC = () => {
       editorRef.current = editor;
       console.log(`[HANDLE-MOUNT] activeFileId=${activeFileId}`);
 
+      // Register "Why does this line exist?" context menu action
+      editor.addAction({
+        id: 'vector-provenance',
+        label: 'Why does this line exist?',
+        contextMenuGroupId: 'navigation',
+        contextMenuOrder: 1.5,
+        run(ed) {
+          const lineNumber = ed.getPosition()?.lineNumber;
+          if (!lineNumber) return;
+          const lineContent = ed.getModel()?.getLineContent(lineNumber) ?? '';
+          if (!lineContent.trim()) return;
+          setProvenanceLine(lineContent);
+        },
+      });
+
       if (!activeFileId) return;
 
       const sync = fileSyncMap.current.get(activeFileId);
@@ -855,7 +875,7 @@ const VSCodeEditor: React.FC = () => {
                   </div>
                 )}
 
-                <div className="editor-container">
+                <div className="editor-container" style={{ position: 'relative' }}>
                   {(syncPhase === 'connecting' || syncPhase === 'syncing') && (
                     <div className="sync-overlay" aria-label="Connecting to collaboration server">
                       <div className="sync-overlay-spinner" />
@@ -864,6 +884,20 @@ const VSCodeEditor: React.FC = () => {
                       </span>
                     </div>
                   )}
+
+                  {/* Provenance panel — slides in from right over the editor */}
+                  {provenanceLine !== null && activeFileId && (
+                    <ProvenancePanel
+                      fileId={activeFileId}
+                      lineContent={provenanceLine}
+                      onClose={() => setProvenanceLine(null)}
+                      onSeekToVersion={vn => {
+                        setSeekVersionNumber(vn);
+                        setProvenanceLine(null);
+                      }}
+                    />
+                  )}
+
                   <Editor
                     key={activeFileId}
                     height="100%"
@@ -906,6 +940,8 @@ const VSCodeEditor: React.FC = () => {
             fileId={activeFileId || undefined}
             language={activeFile?.file.language}
             onRestore={handleVersionRestore}
+            seekVersionNumber={seekVersionNumber ?? undefined}
+            onSeekComplete={() => setSeekVersionNumber(null)}
           />
         </div>
       </div>

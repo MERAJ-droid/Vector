@@ -146,6 +146,11 @@ watch-redis.bat
 DEV_NOTES/
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Claude Code local config — personal dev tool, not part of the project
+# ─────────────────────────────────────────────────────────────────────────────
+.claudeignore
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Docker overrides (prod Dockerfile and local overrides stay local)
 # ─────────────────────────────────────────────────────────────────────────────
 Dockerfile.prod

@@ -108,4 +108,25 @@ export const healthAPI = {
   },
 };
 
+// ─── AI features ──────────────────────────────────────────────────────────────
+
+export interface ProvenanceEvent {
+  versionNumber: number;
+  action: 'added' | 'removed' | 're-added';
+  by: string;
+  at: string;
+}
+
+export interface ProvenanceResult {
+  narrative: string;
+  history: ProvenanceEvent[];
+}
+
+export const aiAPI = {
+  fetchProvenance: async (fileId: number, lineContent: string): Promise<ProvenanceResult> => {
+    const response = await api.post(`/ai/files/${fileId}/provenance`, { lineContent });
+    return response.data;
+  },
+};
+
 export default api;
