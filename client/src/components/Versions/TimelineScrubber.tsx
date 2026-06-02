@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { GitCommit, SplitSquareHorizontal, RotateCcw, X, MousePointer2 } from 'lucide-react';
+import { GitCommit, SplitSquareHorizontal, RotateCcw, X, MousePointer2, MessageSquare, Save } from 'lucide-react';
 import { versionsAPI, Version } from '../../services/versionsAPI';
 import { filesAPI } from '../../services/api';
 import { Editor } from '@monaco-editor/react';
 import DiffViewer from './DiffViewer';
+import TemporalQueryPanel from './TemporalQueryPanel';
 import './TimelineScrubber.css';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -14,6 +15,7 @@ interface TimelineScrubberProps {
   onRestore?: (versionId: number) => void;
   seekVersionNumber?: number;
   onSeekComplete?: () => void;
+  getCurrentContent?: () => string;
 }
 
 export interface Session {
@@ -112,7 +114,7 @@ export function groupVersionsIntoSessions(
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
-  fileId, language, onRestore, seekVersionNumber, onSeekComplete,
+  fileId, language, onRestore, seekVersionNumber, onSeekComplete, getCurrentContent,
 }) => {
   const [versions, setVersions] = useState<Version[]>([]);
   const [loading, setLoading] = useState(false);
@@ -122,6 +124,8 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [mode, setMode] = useState<ScrubMode>('navigate');
   const [diffVersion, setDiffVersion] = useState<Version | null>(null);
+  const [showTemporalPanel, setShowTemporalPanel] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const contentCacheRef = useRef<Map<number, string>>(new Map());
   const activeRowRef = useRef<HTMLDivElement>(null);
@@ -224,6 +228,36 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     }
   }, [fileId, onRestore]);
 
+  const handleSaveCheckpoint = useCallback(async () => {
+    if (!fileId || !getCurrentContent) return;
+    const label = window.prompt('Checkpoint label (optional):');
+    if (label === null) return; // user cancelled
+    const content = getCurrentContent();
+    if (!content) return;
+    setSaving(true);
+    try {
+      await versionsAPI.createCheckpoint(fileId, content, label.trim() || undefined);
+      // Refresh version list
+      const verData = await versionsAPI.getVersions(fileId);
+      const sorted = [...verData.versions].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      setVersions(sorted);
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Failed to save checkpoint');
+    } finally {
+      setSaving(false);
+    }
+  }, [fileId, getCurrentContent]);
+
+  const handleSeekToVersion = useCallback((versionNumber: number) => {
+    const target = versions.find(v => v.versionNumber === versionNumber);
+    if (!target) return;
+    setMode('navigate');
+    setActiveVersion(target);
+    loadVersionContent(target);
+  }, [versions, loadVersionContent]);
+
   const handleMarkerClick = useCallback((v: Version) => {
     if (mode === 'diff') {
       setDiffVersion(v);
@@ -278,8 +312,33 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
           >
             <SplitSquareHorizontal size={11} />
           </button>
+          <button
+            className={`ts-mode-btn${showTemporalPanel ? ' active' : ''}`}
+            onClick={() => setShowTemporalPanel(v => !v)}
+            title="Ask about this file's history"
+          >
+            <MessageSquare size={11} />
+          </button>
+          {getCurrentContent && (
+            <button
+              className="ts-mode-btn"
+              onClick={handleSaveCheckpoint}
+              disabled={saving}
+              title="Save checkpoint"
+            >
+              <Save size={11} />
+            </button>
+          )}
         </div>
       </div>
+
+      {/* ── Temporal query panel ── */}
+      {showTemporalPanel && fileId && (
+        <TemporalQueryPanel
+          fileId={fileId}
+          onSeekToVersion={handleSeekToVersion}
+        />
+      )}
 
       {/* ── Version list ── */}
       <div className="ts-list">

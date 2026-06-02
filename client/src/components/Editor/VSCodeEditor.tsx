@@ -942,6 +942,7 @@ const VSCodeEditor: React.FC = () => {
             onRestore={handleVersionRestore}
             seekVersionNumber={seekVersionNumber ?? undefined}
             onSeekComplete={() => setSeekVersionNumber(null)}
+            getCurrentContent={() => editorRef.current?.getValue() ?? ''}
           />
         </div>
       </div>

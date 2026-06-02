@@ -122,9 +122,19 @@ export interface ProvenanceResult {
   history: ProvenanceEvent[];
 }
 
+export interface TemporalQueryResult {
+  answer: string;
+  navigateToVersion?: number;
+}
+
 export const aiAPI = {
   fetchProvenance: async (fileId: number, lineContent: string): Promise<ProvenanceResult> => {
     const response = await api.post(`/ai/files/${fileId}/provenance`, { lineContent });
+    return response.data;
+  },
+
+  askTemporalQuestion: async (fileId: number, question: string): Promise<TemporalQueryResult> => {
+    const response = await api.post(`/ai/files/${fileId}/temporal-query`, { question });
     return response.data;
   },
 };

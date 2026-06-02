@@ -1,0 +1,114 @@
+.tq-panel {
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid #2d2d2d;
+  background: #1e1e1e;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: tq-expand 150ms ease-out;
+}
+
+@keyframes tq-expand {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Input row */
+.tq-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.tq-input {
+  flex: 1;
+  background: #0d0d0d;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 5px 8px;
+  outline: none;
+  transition: border-color 120ms;
+}
+.tq-input::placeholder { color: #555; }
+.tq-input:focus { border-color: #007acc; }
+.tq-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.tq-ask-btn {
+  background: #007acc;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 600;
+  padding: 5px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms;
+}
+.tq-ask-btn:hover:not(:disabled) { background: #0098ff; }
+.tq-ask-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Skeleton loader */
+.tq-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 2px 0;
+}
+
+.tq-skeleton-line {
+  height: 9px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #2a2a2a 25%, #333 50%, #2a2a2a 75%);
+  background-size: 200% 100%;
+  animation: tq-shimmer 1.2s infinite;
+}
+.tq-skeleton-line--long { width: 92%; }
+.tq-skeleton-line--med  { width: 68%; }
+
+@keyframes tq-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Error */
+.tq-error {
+  font-size: 11px;
+  color: #f48771;
+  line-height: 1.5;
+}
+
+/* Answer */
+.tq-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.tq-answer-text {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.65;
+  color: #d4d4d4;
+}
+
+.tq-jump-btn {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #9cdcfe;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.tq-jump-btn:hover {
+  background: #252526;
+  border-color: #007acc;
+}
