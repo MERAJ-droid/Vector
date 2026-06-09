@@ -193,19 +193,43 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     activeRowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [activeVersion?.id]);
 
-  // Seek to a version number when requested by ProvenancePanel
+  // Seek to a version number when requested by ProvenancePanel or AgentInsightBar.
+  // If the version isn't in the current list (e.g. a guardian checkpoint just created),
+  // refresh the list first then seek.
   useEffect(() => {
-    if (!seekVersionNumber || versions.length === 0) return;
-    const target = versions.find(v => v.versionNumber === seekVersionNumber);
-    if (target) {
-      setMode('navigate');
-      setActiveVersion(target);
-      loadVersionContent(target);
-    }
-    onSeekComplete?.();
-  // loadVersionContent is stable (useCallback); versions changes are intentional triggers
+    if (!seekVersionNumber || !fileId) return;
+    let cancelled = false;
+
+    const doSeek = async () => {
+      let list = versions;
+
+      if (!list.find(v => v.versionNumber === seekVersionNumber)) {
+        try {
+          const verData = await versionsAPI.getVersions(fileId);
+          if (cancelled) return;
+          list = [...verData.versions].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+          setVersions(list);
+        } catch { /* ignore fetch failure */ }
+      }
+
+      if (cancelled) return;
+      const target = list.find(v => v.versionNumber === seekVersionNumber);
+      if (target) {
+        setMode('navigate');
+        setActiveVersion(target);
+        loadVersionContent(target);
+      }
+      onSeekComplete?.();
+    };
+
+    doSeek();
+    return () => { cancelled = true; };
+  // loadVersionContent is stable (useCallback); versions intentionally omitted to
+  // avoid re-triggering the seek every time the list updates for other reasons
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seekVersionNumber]);
+  }, [seekVersionNumber, fileId]);
 
   // ─── Actions ─────────────────────────────────────────────────────────────────
 

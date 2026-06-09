@@ -14,6 +14,7 @@ import EditorTabs from './EditorTabs';
 import EditorToolbar from './EditorToolbar';
 import TimelineScrubber from '../Versions/TimelineScrubber';
 import ProvenancePanel from './ProvenancePanel';
+import AgentInsightBar, { GuardianInsight } from './AgentInsightBar';
 import { sha256Hex } from '../../utils/hash';
 import './VSCodeEditor.css';
 
@@ -120,6 +121,22 @@ const VSCodeEditor: React.FC = () => {
   // ── Provenance panel state ───────────────────────────────────────────────
   const [provenanceLine, setProvenanceLine] = useState<string | null>(null);
   const [seekVersionNumber, setSeekVersionNumber] = useState<number | null>(null);
+
+  // ── Code Guardian insight bar state ─────────────────────────────────────
+  const [currentInsight, setCurrentInsight] = useState<GuardianInsight | null>(null);
+
+  const handleInsightDismiss = useCallback(() => setCurrentInsight(null), []);
+  const handleInsightSeek = useCallback((vn: number) => {
+    setSeekVersionNumber(vn);
+    setCurrentInsight(null);
+  }, []);
+
+  // Auto-dismiss the insight bar after 8 seconds
+  useEffect(() => {
+    if (!currentInsight) return;
+    const timer = setTimeout(() => setCurrentInsight(null), 8_000);
+    return () => clearTimeout(timer);
+  }, [currentInsight]);
 
   // ── Refs: own Yjs & Monaco lifetime ─────────────────────────────────────
   /** Mounted Monaco editor instance */
@@ -293,6 +310,8 @@ const VSCodeEditor: React.FC = () => {
           // 1. Cancel both timeout timers
           if (warnTimerRef.current) { clearTimeout(warnTimerRef.current); warnTimerRef.current = null; }
           if (fallbackTimerRef.current) { clearTimeout(fallbackTimerRef.current); fallbackTimerRef.current = null; }
+          // 1b. Remove guardian WebSocket listener
+          detachGuardianListener();
           // 2. Remove provider event listeners — guarded by registration flags.
           //    onSync removes itself inside its own body (provider.off inside onSync).
           //    If sync has already completed, onSyncRegistered is false and this
@@ -315,6 +334,40 @@ const VSCodeEditor: React.FC = () => {
       // Timer refs stored on the syncState closure so destroy() can cancel them.
       const warnTimerRef = { current: null as ReturnType<typeof setTimeout> | null };
       const fallbackTimerRef = { current: null as ReturnType<typeof setTimeout> | null };
+
+      // ── Guardian message listener (type 2) ───────────────────────────────
+      // Attached to provider.ws via addEventListener so it coexists with
+      // y-websocket's own onmessage handler without replacing it.
+      // Re-attached on every reconnect via onStatusChange.
+      let guardianWs: WebSocket | null = null;
+      const onGuardianMessage = (event: MessageEvent) => {
+        if (activeFileIdRef.current !== file.id) return;
+        try {
+          const arr = new Uint8Array(event.data as ArrayBuffer);
+          if (arr.length < 2 || arr[0] !== 2) return;
+          // Decode lib0 varint-length string starting at byte 1
+          let offset = 1;
+          let len = 0;
+          let shift = 0;
+          while (offset < arr.length) {
+            const byte = arr[offset++];
+            len |= (byte & 0x7f) << shift;
+            shift += 7;
+            if ((byte & 0x80) === 0) break;
+          }
+          const jsonStr = new TextDecoder().decode(arr.slice(offset, offset + len));
+          const insight = JSON.parse(jsonStr) as GuardianInsight;
+          setCurrentInsight(insight);
+        } catch {
+          // malformed guardian frame — ignore
+        }
+      };
+      const detachGuardianListener = () => {
+        if (guardianWs) {
+          guardianWs.removeEventListener('message', onGuardianMessage);
+          guardianWs = null;
+        }
+      };
       // Tracks whether provider.on('sync', onSync) is currently registered.
       // onSync removes itself when it fires; destroy() checks this to avoid
       // calling provider.off('sync', onSync) a second time (which produces
@@ -380,6 +433,19 @@ const VSCodeEditor: React.FC = () => {
         // it for the active file to avoid showing the wrong file's status.
         if (activeFileIdRef.current === file.id) {
           setConnectionStatus(status as any);
+        }
+
+        // Attach guardian listener to the current WebSocket on each connect.
+        // provider.ws changes on every reconnect, so we re-attach each time.
+        if (status === 'connected') {
+          detachGuardianListener();
+          const providerWs = (provider as any).ws as WebSocket | null;
+          if (providerWs) {
+            providerWs.addEventListener('message', onGuardianMessage);
+            guardianWs = providerWs;
+          }
+        } else if (status === 'disconnected') {
+          detachGuardianListener();
         }
 
         if (status === 'connected') {
@@ -923,6 +989,15 @@ const VSCodeEditor: React.FC = () => {
                     }}
                     onMount={handleEditorMount}
                   />
+
+                  {/* Guardian insight bar — rendered after <Editor> so it stacks above Monaco layers */}
+                  {currentInsight && (
+                    <AgentInsightBar
+                      insight={currentInsight}
+                      onDismiss={handleInsightDismiss}
+                      onSeekToVersion={handleInsightSeek}
+                    />
+                  )}
                 </div>
               </>
             )}

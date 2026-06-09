@@ -1,0 +1,72 @@
+.agent-insight-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #1e2a3a;
+  border-top: 1px solid #264f78;
+  color: #9cdcfe;
+  font-size: 12px;
+  font-family: 'Segoe UI', sans-serif;
+  animation: insight-slide-up 0.2s ease-out;
+}
+
+@keyframes insight-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.agent-insight-icon {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.agent-insight-message {
+  flex: 1;
+  color: #d4d4d4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-insight-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.agent-insight-action-btn {
+  background: none;
+  border: 1px solid #264f78;
+  border-radius: 3px;
+  color: #9cdcfe;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agent-insight-action-btn:hover {
+  background: #264f78;
+  color: #fff;
+}
+
+.agent-insight-dismiss {
+  background: none;
+  border: none;
+  color: #858585;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.agent-insight-dismiss:hover {
+  color: #d4d4d4;
+}

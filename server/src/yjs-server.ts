@@ -5,9 +5,9 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
-import * as map from 'lib0/map';
 import pool from './config/database';
 import redisConnection from './config/redis';
+import { CodeGuardianAgent, GuardianPayload } from './agents/CodeGuardianAgent';
 import dotenv from 'dotenv';
 import path from 'path';
 
@@ -54,6 +54,7 @@ const loadingDocs = new Map<string, Promise<WSSharedDoc>>();
 
 const messageSync = 0;
 const messageAwareness = 1;
+const messageAgent = 2;
 
 class WSSharedDoc extends Y.Doc {
   name: string;
@@ -76,6 +77,9 @@ class WSSharedDoc extends Y.Doc {
   /** The periodic interval that runs the idle check. */
   idleCheckInterval: NodeJS.Timeout | null = null;
 
+  /** Code Guardian agent for this room. Null when no clients are connected. */
+  guardian: CodeGuardianAgent | null = null;
+
   constructor(name: string) {
     super({ gc: true });
     this.name = name;
@@ -95,11 +99,16 @@ class WSSharedDoc extends Y.Doc {
     });
 
     // Save to database on updates (debounced)
-    this.on('update', () => {
+    this.on('update', (update: Uint8Array) => {
       // Don't auto-save during initial content loading
       if (this.isInitializing) {
         return;
       }
+
+      // Guardian tracking — fire-and-forget, must never throw
+      try {
+        this.guardian?.recordUpdate(update.byteLength, this.conns.size);
+      } catch { /* guardian must not affect sync */ }
 
       if (this.saveTimeout) {
         clearTimeout(this.saveTimeout);
@@ -200,19 +209,20 @@ class WSSharedDoc extends Y.Doc {
     }
   }
 
-  async createSessionVersion(reason: 'idle-timeout' | 'all-disconnected' | 'marathon') {
+  async createSessionVersion(reason: 'idle-timeout' | 'all-disconnected' | 'marathon' | 'guardian-checkpoint'): Promise<number | null> {
     const fileId = this.name.replace('file-', '');
     const content = this.getText('monaco').toString();
 
     if (!content) {
       console.log(`⏭️ Skipping session version for file ${fileId}: empty content`);
-      return;
+      return null;
     }
 
     const commitMessages = {
-      'idle-timeout':       `Session checkpoint — ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
-      'all-disconnected':   `Session end — ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
-      'marathon':           `Auto-checkpoint (30 min) — ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+      'idle-timeout':          `Session checkpoint — ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+      'all-disconnected':      `Session end — ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+      'marathon':              `Auto-checkpoint (30 min) — ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+      'guardian-checkpoint':   `Guardian checkpoint — ${new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
     };
 
     try {
@@ -226,7 +236,7 @@ class WSSharedDoc extends Y.Doc {
 
       if (content === dbLastContent) {
         console.log(`⏭️ Skipping session version for file ${fileId}: content unchanged since last DB version`);
-        return;
+        return null;
       }
 
       const versionResult = await pool.query(
@@ -248,8 +258,10 @@ class WSSharedDoc extends Y.Doc {
       this.lastVersionSavedAt = Date.now();
 
       console.log(`📸 Session version ${versionNumber} saved for file ${fileId} — reason: ${reason}`);
+      return versionNumber as number;
     } catch (err: any) {
       console.error(`❌ Failed to create session version for file ${fileId}:`, err.message);
+      return null;
     }
   }
 }
@@ -514,6 +526,8 @@ const closeConn = async (doc: WSSharedDoc, conn: WebSocket) => {
       await doc.createSessionVersion('all-disconnected');
       doc.stopIdleCheck();
 
+      try { doc.guardian?.stop(); doc.guardian = null; } catch { doc.guardian = null; }
+
       docs.delete(doc.name);
       console.log(`🗑️ Removed room from memory: "${doc.name}"`);
     }
@@ -632,7 +646,37 @@ wss.on('connection', async (ws: WebSocket, req: http.IncomingMessage) => {
 
   doc.conns.set(ws, new Set());
   doc.connLastActivity.set(ws, Date.now());
-  if (doc.conns.size === 1) doc.startIdleCheck(); // start on first connection only
+  if (doc.conns.size === 1) {
+    doc.startIdleCheck();
+
+    // Start the Code Guardian on first connection
+    const guardianBroadcast = (payload: GuardianPayload) => {
+      try {
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, messageAgent);
+        encoding.writeVarString(encoder, JSON.stringify(payload));
+        const m = encoding.toUint8Array(encoder);
+        let sent = 0;
+        doc.conns.forEach((_, conn) => {
+          if (conn.readyState === WebSocket.OPEN) {
+            try { conn.send(m); sent++; } catch { /* ignore */ }
+          }
+        });
+      } catch { /* broadcast must never throw */ }
+    };
+
+    try {
+      doc.guardian = new CodeGuardianAgent(
+        doc.name,
+        guardianBroadcast,
+        () => doc.createSessionVersion('guardian-checkpoint')
+      );
+      doc.guardian.start();
+    } catch (err: any) {
+      console.error(`❌ Failed to start guardian for "${doc.name}":`, err.message);
+      doc.guardian = null;
+    }
+  }
 
   const ytext = doc.getText('monaco');
   console.log(`📊 Room "${roomName}" doc state: ${ytext.length} characters`);
