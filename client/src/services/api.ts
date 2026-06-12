@@ -127,6 +127,17 @@ export interface TemporalQueryResult {
   navigateToVersion?: number;
 }
 
+// ─── Replay narration types ───────────────────────────────────────────────────
+
+export interface ReplayVersionSummary {
+  versionNumber: number;
+  username: string;
+  createdAt: string;
+  commitMessage: string | null;
+  linesAdded: number;
+  linesRemoved: number;
+}
+
 export const aiAPI = {
   fetchProvenance: async (fileId: number, lineContent: string): Promise<ProvenanceResult> => {
     const response = await api.post(`/ai/files/${fileId}/provenance`, { lineContent });
@@ -136,6 +147,41 @@ export const aiAPI = {
   askTemporalQuestion: async (fileId: number, question: string): Promise<TemporalQueryResult> => {
     const response = await api.post(`/ai/files/${fileId}/temporal-query`, { question });
     return response.data;
+  },
+
+  // Opens an SSE stream for replay narration. Returns a cleanup function.
+  // EventSource cannot send Authorization headers — token is passed as a query param.
+  streamReplayNarration(
+    fileId: number,
+    onSummaries: (summaries: ReplayVersionSummary[]) => void,
+    onToken: (token: string) => void,
+    onCached: (narration: string) => void,
+    onDone: () => void,
+    onError: (message: string) => void
+  ): () => void {
+    const token = localStorage.getItem('token') ?? '';
+    const url = `${API_BASE_URL}/ai/files/${fileId}/replay-narration?token=${encodeURIComponent(token)}`;
+    const es = new EventSource(url);
+
+    es.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'summaries') onSummaries(payload.summaries);
+        else if (payload.type === 'token') onToken(payload.token);
+        else if (payload.type === 'cached') onCached(payload.narration);
+        else if (payload.type === 'done') { onDone(); es.close(); }
+        else if (payload.type === 'error') { onError(payload.message); es.close(); }
+      } catch {
+        // ignore malformed event
+      }
+    };
+
+    es.onerror = () => {
+      onError('Connection to narration stream lost.');
+      es.close();
+    };
+
+    return () => es.close();
   },
 };
 

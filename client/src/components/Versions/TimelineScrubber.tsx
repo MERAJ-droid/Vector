@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { GitCommit, SplitSquareHorizontal, RotateCcw, X, MousePointer2, MessageSquare, Save } from 'lucide-react';
+import { GitCommit, SplitSquareHorizontal, RotateCcw, X, MousePointer2, MessageSquare, Save, Play } from 'lucide-react';
 import { versionsAPI, Version } from '../../services/versionsAPI';
 import { filesAPI } from '../../services/api';
 import { Editor } from '@monaco-editor/react';
 import DiffViewer from './DiffViewer';
 import TemporalQueryPanel from './TemporalQueryPanel';
+import ReplayPanel from './ReplayPanel';
 import './TimelineScrubber.css';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -126,6 +127,7 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   const [diffVersion, setDiffVersion] = useState<Version | null>(null);
   const [showTemporalPanel, setShowTemporalPanel] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isReplaying, setIsReplaying] = useState(false);
 
   const contentCacheRef = useRef<Map<number, string>>(new Map());
   const activeRowRef = useRef<HTMLDivElement>(null);
@@ -295,6 +297,19 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
 
   if (!fileId) return null;
 
+  // ─── Replay overlay (fullscreen, rendered outside sidebar) ───────────────────
+
+  if (isReplaying) {
+    return (
+      <ReplayPanel
+        fileId={fileId}
+        language={language || 'plaintext'}
+        versions={versions}
+        onClose={() => setIsReplaying(false)}
+      />
+    );
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────────
 
   const showPreview = activeVersion !== null && mode === 'navigate';
@@ -351,6 +366,15 @@ const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
               title="Save checkpoint"
             >
               <Save size={11} />
+            </button>
+          )}
+          {versions.length >= 2 && (
+            <button
+              className={`ts-mode-btn${isReplaying ? ' active' : ''}`}
+              onClick={() => setIsReplaying(v => !v)}
+              title="Replay session"
+            >
+              <Play size={11} />
             </button>
           )}
         </div>

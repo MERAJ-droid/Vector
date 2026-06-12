@@ -11,7 +11,8 @@ export interface AuthRequest extends Request {
 
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+  // Fall back to query param for SSE endpoints (EventSource cannot set headers)
+  const token = (authHeader && authHeader.split(' ')[1]) || (req.query.token as string | undefined);
 
   if (!token) {
     return res.status(401).json({ error: 'Access token required' });

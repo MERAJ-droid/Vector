@@ -57,6 +57,43 @@ export async function generateText(
   }
 }
 
+export async function streamText(
+  systemPrompt: string,
+  userPrompt: string,
+  onToken: (token: string) => void,
+  maxTokens = 1500
+): Promise<string> {
+  try {
+    const stream = await client.chat.completions.create({
+      model: modelName(),
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      max_tokens: maxTokens,
+      temperature: 0.5,
+      stream: true,
+    });
+    let full = '';
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        full += delta;
+        onToken(delta);
+      }
+    }
+    return full;
+  } catch (err: any) {
+    const provider = process.env.AI_PROVIDER || 'ollama';
+    if (provider === 'ollama') {
+      throw new Error(
+        `AI unavailable: Ollama is not running. Start it with "ollama serve", or set AI_PROVIDER=groq in .env. (${err.message})`
+      );
+    }
+    throw err;
+  }
+}
+
 export async function generateEmbedding(text: string): Promise<number[]> {
   // Embeddings always use Ollama nomic-embed-text regardless of AI_PROVIDER
   const embedClient = new OpenAI({
